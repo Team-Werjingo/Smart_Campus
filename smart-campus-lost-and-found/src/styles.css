@@ -1,0 +1,122 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-display: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --shadow-brutal: 4px 4px 0 0 color-mix(in oklab, var(--foreground) 78%, transparent);
+  --shadow-brutal-lg: 6px 6px 0 0 color-mix(in oklab, var(--foreground) 78%, transparent);
+}
+
+/* Refined purple + mint + cream: professional campus signage */
+:root {
+  --radius: 0.75rem;
+  --background: #faf9fd;
+  --foreground: #2d2345;
+  --card: #fffdf7;
+  --card-foreground: #2d2345;
+  --popover: #fffdf7;
+  --popover-foreground: #2d2345;
+  --primary: #7650d8;
+  --primary-foreground: #fffdf7;
+  --secondary: #eee8fa;
+  --secondary-foreground: #4b3b70;
+  --muted: #f4f1f8;
+  --muted-foreground: #756d87;
+  --accent: #e9ddff;
+  --accent-foreground: #4b3b70;
+  --success: #dcefe6;
+  --success-foreground: #315c4a;
+  --destructive: #c94d6c;
+  --destructive-foreground: #fffdf7;
+  --border: #49395f;
+  --input: #49395f;
+  --ring: #7046d9;
+  --chart-1: #7046d9;
+  --chart-2: #78b99c;
+  --chart-3: #b5a0ed;
+  --chart-4: #d9c98c;
+  --chart-5: #c94d6c;
+  --sidebar: #fffdf7;
+  --sidebar-foreground: #2d2345;
+  --sidebar-primary: #7650d8;
+  --sidebar-primary-foreground: #fffdf7;
+  --sidebar-accent: #e9ddff;
+  --sidebar-accent-foreground: #4b3b70;
+  --sidebar-border: #49395f;
+  --sidebar-ring: #7650d8;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+@utility panel {
+  background-color: var(--card);
+  border: 2px solid var(--foreground);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-brutal);
+}
+
+@utility grid-paper {
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
