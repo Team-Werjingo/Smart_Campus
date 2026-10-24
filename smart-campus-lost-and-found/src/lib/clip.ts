@@ -43,13 +43,13 @@ export async function imageEmbedding(file: File) {
   const [{ model, processor }] = await Promise.all([loadResources()]);
   const image = await RawImage.fromBlob(file);
   const inputs = await processor(image);
-  const output = await model(inputs);
+  const output = await model({ ...inputs });
   return normalize(output.image_embeds.data);
 }
 
 export async function textEmbedding(text: string) {
   const [{ model, tokenizer }] = await Promise.all([loadResources()]);
   const inputs = tokenizer([text.trim()], { padding: true, truncation: true });
-  const output = await model(inputs);
+  const output = await model({ ...inputs });
   return normalize(output.text_embeds.data);
 }
