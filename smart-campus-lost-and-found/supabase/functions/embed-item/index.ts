@@ -1,8 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const IMAGE_BUCKET = "report-images";
-const EMBEDDING_DIMENSIONS = 768;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const EMBEDDING_DIMENSIONS = 512;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -19,66 +17,20 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function requiredEnv(name: string) {
-  const value = Deno.env.get(name);
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
-
 function toVectorLiteral(values: Embedding) {
   if (
     values.length !== EMBEDDING_DIMENSIONS ||
     values.some((value) => !Number.isFinite(value))
   ) {
-    throw new Error(`SigLIP service must return ${EMBEDDING_DIMENSIONS} finite values`);
+    throw new Error(`CLIP must return ${EMBEDDING_DIMENSIONS} finite values`);
   }
   return `[${values.join(",")}]`;
 }
 
 function isEmbedding(value: unknown): value is Embedding {
   return Array.isArray(value) &&
+    value.length === EMBEDDING_DIMENSIONS &&
     value.every((entry) => typeof entry === "number" && Number.isFinite(entry));
-}
-
-async function embed(
-  modality: "text" | "image",
-  content: string,
-  contentType?: string,
-): Promise<Embedding> {
-  const endpoint = requiredEnv("SIGLIP_EMBEDDING_URL").replace(/\/+$/, "");
-  const token = requiredEnv("SIGLIP_SERVICE_TOKEN");
-  const payload = modality === "text"
-    ? { modality, text: content }
-    : { modality, image_base64: content, content_type: contentType };
-
-  const response = await fetch(`${endpoint}/embed`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 500);
-    throw new Error(`SigLIP service returned ${response.status}: ${detail}`);
-  }
-
-  const result: { embedding?: unknown } = await response.json();
-  if (!isEmbedding(result.embedding)) {
-    throw new Error("SigLIP service returned an invalid embedding");
-  }
-  toVectorLiteral(result.embedding);
-  return result.embedding;
-}
-
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
 }
 
 Deno.serve(async (request) => {
@@ -95,9 +47,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: "Authentication required" }, 401);
     }
 
-    const supabaseUrl = requiredEnv("SUPABASE_URL");
-    const anonKey = requiredEnv("SUPABASE_ANON_KEY");
-    const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+      throw new Error("Supabase function environment is incomplete");
+    }
     const token = authorization.slice("Bearer ".length);
 
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -110,99 +65,62 @@ Deno.serve(async (request) => {
     }
 
     const body: unknown = await request.json();
+    if (typeof body !== "object" || body === null) {
+      return jsonResponse({ error: "Invalid request body" }, 400);
+    }
+    const input = body as Record<string, unknown>;
     if (
-      typeof body !== "object" ||
-      body === null ||
-      !("type" in body) ||
-      !("id" in body) ||
-      (body.type !== "lost" && body.type !== "found") ||
-      typeof body.id !== "string" ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id)
+      (input.type !== "lost" && input.type !== "found") ||
+      typeof input.id !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.id)
     ) {
       return jsonResponse({ error: "Expected a valid item type and UUID" }, 400);
     }
+    if (input.image_embedding !== null && !isEmbedding(input.image_embedding)) {
+      return jsonResponse({ error: "Invalid image embedding" }, 400);
+    }
+    if (input.text_embedding !== null && !isEmbedding(input.text_embedding)) {
+      return jsonResponse({ error: "Invalid text embedding" }, 400);
+    }
 
-    const type: ItemType = body.type;
-    const id = body.id;
+    const type = input.type as ItemType;
+    const id = input.id;
+    const imageVector = input.image_embedding === null
+      ? null
+      : toVectorLiteral(input.image_embedding as Embedding);
+    const textVector = input.text_embedding === null
+      ? null
+      : toVectorLiteral(input.text_embedding as Embedding);
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    let photoPath: string | null;
-    let description: string | null = null;
-    if (type === "lost") {
-      const { data, error } = await admin
-        .from("lost_items")
-        .select("user_id, description, photo_path")
-        .eq("id", id)
-        .single();
-      if (error) throw error;
-      if (data.user_id !== authData.user.id) {
-        return jsonResponse({ error: "You do not own this report" }, 403);
-      }
-      description = data.description;
-      photoPath = data.photo_path;
-    } else {
-      const { data, error } = await admin
-        .from("found_items")
-        .select("user_id, photo_path")
-        .eq("id", id)
-        .single();
-      if (error) throw error;
-      if (data.user_id !== authData.user.id) {
-        return jsonResponse({ error: "You do not own this report" }, 403);
-      }
-      photoPath = data.photo_path;
+    const table = type === "lost" ? "lost_items" : "found_items";
+    const embeddingTable = type === "lost" ? "lost_embeddings" : "found_embeddings";
+    const idColumn = type === "lost" ? "lost_id" : "found_id";
+    const { data: item, error: itemError } = await admin
+      .from(table)
+      .select("user_id")
+      .eq("id", id)
+      .single();
+    if (itemError) throw itemError;
+    if (item.user_id !== authData.user.id) {
+      return jsonResponse({ error: "You do not own this report" }, 403);
     }
 
-    let imageVector: string | null = null;
-    if (photoPath) {
-      const { data: image, error } = await admin.storage.from(IMAGE_BUCKET).download(photoPath);
-      if (error) throw error;
-      if (image.size > MAX_IMAGE_BYTES) {
-        throw new Error("Image exceeds the 10 MB embedding limit");
-      }
-      const imageBytes = new Uint8Array(await image.arrayBuffer());
-      imageVector = toVectorLiteral(
-        await embed("image", bytesToBase64(imageBytes), image.type || "image/jpeg"),
-      );
-    } else if (type === "found") {
-      throw new Error("Found item photo is missing");
-    }
+    const { data: existing, error: readError } = await admin
+      .from(embeddingTable)
+      .select("image_embedding, text_embedding")
+      .eq(idColumn, id)
+      .maybeSingle();
+    if (readError) throw readError;
 
-    let textVector: string | null = null;
-    if (type === "lost") {
-      if (!description?.trim()) throw new Error("Lost item description is missing");
-      textVector = toVectorLiteral(await embed("text", description.trim()));
-    }
-
-    if (type === "lost") {
-      const { data: existing, error: readError } = await admin
-        .from("lost_embeddings")
-        .select("image_embedding, text_embedding")
-        .eq("lost_id", id)
-        .maybeSingle();
-      if (readError) throw readError;
-      const { error } = await admin.from("lost_embeddings").upsert({
-        lost_id: id,
-        image_embedding: imageVector ?? existing?.image_embedding ?? null,
-        text_embedding: textVector ?? existing?.text_embedding,
-      });
-      if (error) throw error;
-    } else {
-      const { data: existing, error: readError } = await admin
-        .from("found_embeddings")
-        .select("image_embedding, text_embedding")
-        .eq("found_id", id)
-        .maybeSingle();
-      if (readError) throw readError;
-      const { error } = await admin.from("found_embeddings").upsert({
-        found_id: id,
-        image_embedding: imageVector ?? existing?.image_embedding,
-        text_embedding: existing?.text_embedding ?? null,
-      });
-      if (error) throw error;
-    }
+    const { error: upsertError } = await admin.from(embeddingTable).upsert({
+      [idColumn]: id,
+      image_embedding: imageVector ?? existing?.image_embedding ?? null,
+      text_embedding: textVector ?? existing?.text_embedding ?? null,
+    });
+    if (upsertError) throw upsertError;
 
     const { error: matchError } = await admin.rpc("refresh_item_matches", {
       p_type: type,

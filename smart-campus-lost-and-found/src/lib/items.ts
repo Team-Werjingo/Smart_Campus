@@ -29,9 +29,19 @@ export function shortText(text: string | null | undefined, max = 60, fallback = 
   return t.length > max ? `${t.slice(0, max).trim()}…` : t;
 }
 
-// The Edge Function stores SigLIP 2 embeddings and updates score_comparison.
-export async function triggerMatching(type: "lost" | "found", id: string) {
-  const { error } = await supabase.functions.invoke("embed-item", { body: { type, id } });
+export async function triggerMatching(
+  type: "lost" | "found",
+  id: string,
+  embeddings: { imageEmbedding?: number[]; textEmbedding?: number[] },
+) {
+  const { error } = await supabase.functions.invoke("embed-item", {
+    body: {
+      type,
+      id,
+      image_embedding: embeddings.imageEmbedding ?? null,
+      text_embedding: embeddings.textEmbedding ?? null,
+    },
+  });
   if (error) throw error;
 }
 

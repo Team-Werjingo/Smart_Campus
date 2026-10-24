@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Camera, ImagePlus, Loader2, Building2, Hand, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { IMAGE_BUCKET, triggerMatching } from "@/lib/items";
+import { imageEmbedding, textEmbedding } from "@/lib/clip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -113,7 +114,14 @@ export function ReportForm({ kind }: { kind: Kind }) {
       }
 
       try {
-        await triggerMatching(kind, id);
+        const [imageVector, textVector] = await Promise.all([
+          file ? imageEmbedding(file) : Promise.resolve(undefined),
+          kind === "lost" ? textEmbedding(description) : Promise.resolve(undefined),
+        ]);
+        await triggerMatching(kind, id, {
+          imageEmbedding: imageVector,
+          textEmbedding: textVector,
+        });
         toast.success("Report saved. We're checking for matches.");
       } catch (error) {
         const detail = error instanceof Error ? ` ${error.message}` : "";

@@ -74,7 +74,7 @@ set search_path = public, extensions
 as $$
 declare
   v_threshold real;
-  v_embedding extensions.vector(768);
+  v_embedding extensions.vector(512);
 begin
   select cosine_threshold
   into v_threshold
