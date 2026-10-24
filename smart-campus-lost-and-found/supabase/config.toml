@@ -1,0 +1,2 @@
+[functions.embed-item]
+verify_jwt = false

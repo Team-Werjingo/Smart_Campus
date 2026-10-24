@@ -21,7 +21,10 @@ TanStack Start + Tailwind, connected to your own Supabase project.
 5. In Supabase -> Edge Functions -> Secrets, set:
    - `SIGLIP_EMBEDDING_URL`: the Cloud Run service URL
    - `SIGLIP_SERVICE_TOKEN`: the same secret configured on Cloud Run
-6. Deploy the Supabase Edge Function: `supabase functions deploy embed-item`.
+6. Deploy the Supabase Edge Function with gateway JWT verification disabled so browser CORS preflight requests can reach the function. The function still validates the user's Bearer token itself:
+   ```sh
+   supabase functions deploy embed-item --no-verify-jwt
+   ```
 7. In Supabase -> Authentication -> Email Templates -> "Confirm signup", add `{{ .Token }}` so the email shows the 6-digit code.
 8. Run `npm run dev`.
 
