@@ -1,4 +1,4 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const IMAGE_BUCKET = "report-images";
 const EMBEDDING_DIMENSIONS = 768;
