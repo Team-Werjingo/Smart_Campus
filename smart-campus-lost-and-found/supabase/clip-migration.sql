@@ -1,4 +1,14 @@
 -- Run once after the existing schema when switching from SigLIP (768) to CLIP (512).
+create table if not exists matching_settings (
+  singleton boolean primary key default true check (singleton),
+  cosine_threshold real not null default 0.30
+    check (cosine_threshold >= 0 and cosine_threshold <= 1)
+);
+
+insert into matching_settings (singleton, cosine_threshold)
+values (true, 0.30)
+on conflict (singleton) do nothing;
+
 alter table lost_embeddings
   alter column image_embedding type extensions.vector(512) using null,
   alter column text_embedding type extensions.vector(512) using null;
