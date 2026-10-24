@@ -48,7 +48,11 @@ export async function imageEmbedding(file: File) {
   const image = await RawImage.fromBlob(file);
   const imageInputs = await processor(image);
   const textInputs = tokenizer(["item"], { padding: true, truncation: true });
-  const output = await model({ ...imageInputs, ...textInputs });
+  const output = await model({
+    input_ids: textInputs.input_ids,
+    attention_mask: textInputs.attention_mask,
+    pixel_values: imageInputs.pixel_values,
+  });
   return normalize(output.image_embeds.data);
 }
 
@@ -66,6 +70,10 @@ export async function textEmbedding(text: string) {
     ], { type: "image/png" }),
   );
   const imageInputs = await processor(placeholder);
-  const output = await model({ ...imageInputs, ...inputs });
+  const output = await model({
+    input_ids: inputs.input_ids,
+    attention_mask: inputs.attention_mask,
+    pixel_values: imageInputs.pixel_values,
+  });
   return normalize(output.text_embeds.data);
 }
