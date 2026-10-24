@@ -131,7 +131,12 @@ Deno.serve(async (request) => {
     return jsonResponse({ ok: true, type, id });
   } catch (error) {
     console.error("embed-item failed", error);
-    const message = error instanceof Error ? error.message : "Unexpected embedding error";
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error &&
+          typeof error.message === "string"
+        ? error.message
+        : "Unexpected embedding error";
     return jsonResponse({ error: message }, 500);
   }
 });
