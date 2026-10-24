@@ -1,29 +1,38 @@
 import {
   AutoProcessor,
   AutoTokenizer,
-  CLIPModel,
+  CLIPTextModelWithProjection,
+  CLIPVisionModelWithProjection,
   RawImage,
 } from "@huggingface/transformers";
 
 const MODEL_ID = "Xenova/clip-vit-base-patch32";
 export const CLIP_EMBEDDING_DIMENSIONS = 512;
 
-type ClipModel = Awaited<ReturnType<typeof CLIPModel.from_pretrained>>;
+type ClipTextModel = Awaited<ReturnType<typeof CLIPTextModelWithProjection.from_pretrained>>;
+type ClipVisionModel = Awaited<ReturnType<typeof CLIPVisionModelWithProjection.from_pretrained>>;
 type ClipProcessor = Awaited<ReturnType<typeof AutoProcessor.from_pretrained>>;
 type ClipTokenizer = Awaited<ReturnType<typeof AutoTokenizer.from_pretrained>>;
 
 let resourcesPromise: Promise<{
-  model: ClipModel;
+  textModel: ClipTextModel;
+  visionModel: ClipVisionModel;
   processor: ClipProcessor;
   tokenizer: ClipTokenizer;
 }> | null = null;
 
 function loadResources() {
   resourcesPromise ??= Promise.all([
-    CLIPModel.from_pretrained(MODEL_ID),
+    CLIPTextModelWithProjection.from_pretrained(MODEL_ID),
+    CLIPVisionModelWithProjection.from_pretrained(MODEL_ID),
     AutoProcessor.from_pretrained(MODEL_ID),
     AutoTokenizer.from_pretrained(MODEL_ID),
-  ]).then(([model, processor, tokenizer]) => ({ model, processor, tokenizer }));
+  ]).then(([textModel, visionModel, processor, tokenizer]) => ({
+    textModel,
+    visionModel,
+    processor,
+    tokenizer,
+  }));
   return resourcesPromise;
 }
 
@@ -40,16 +49,16 @@ function normalize(values: ArrayLike<number>) {
 }
 
 export async function imageEmbedding(file: File) {
-  const [{ model, processor }] = await Promise.all([loadResources()]);
+  const { visionModel, processor } = await loadResources();
   const image = await RawImage.fromBlob(file);
   const inputs = await processor(image);
-  const output = await model({ ...inputs });
+  const output = await visionModel(inputs);
   return normalize(output.image_embeds.data);
 }
 
 export async function textEmbedding(text: string) {
-  const [{ model, tokenizer }] = await Promise.all([loadResources()]);
+  const { textModel, tokenizer } = await loadResources();
   const inputs = tokenizer([text.trim()], { padding: true, truncation: true });
-  const output = await model({ ...inputs });
+  const output = await textModel(inputs);
   return normalize(output.text_embeds.data);
 }
