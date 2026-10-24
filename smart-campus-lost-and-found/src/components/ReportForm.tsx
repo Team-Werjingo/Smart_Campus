@@ -88,7 +88,6 @@ export function ReportForm({ kind }: { kind: Kind }) {
             photo_path: photoPath,
             lost_location: location.trim(),
             date_lost: reportDate,
-            time_lost: reportDate,
           })
           .select("id")
           .single();
