@@ -31,7 +31,7 @@ type MatchRow = {
   found_id: string;
   score: number;
   lost: { id: string; description: string; user_id: string; status: string } | null;
-  found: { id: string; photo_path: string | null; description: string | null; found_location: string; time_found: string; kept_with: string } | null;
+  found: { id: string; photo_path: string | null; description: string | null; found_location: string; date_found: string; kept_with: string } | null;
 };
 
 type OpenChat = { lostId: string; foundId: string; title: string } | null;
@@ -58,7 +58,7 @@ function Dashboard() {
         .from("score_comparison")
         .select(`lost_id, found_id, score,
           lost:lost_items!inner(id, description, user_id, status),
-          found:found_items(id, photo_path, description, found_location, time_found, kept_with)`)
+          found:found_items(id, photo_path, description, found_location, date_found, kept_with)`)
         .eq("lost.user_id", me!.id)
         .eq("lost.status", "open")
         .order("score", { ascending: false });
@@ -202,7 +202,7 @@ function Dashboard() {
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{m.found?.found_location}</span>
-                        {m.found?.time_found && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(m.found.time_found)}</span>}
+                        {m.found?.date_found && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(m.found.date_found)}</span>}
                       </div>
                       {m.found?.kept_with === "finder" ? (
                         <Button variant="ink" className="w-full" onClick={() => openChat(m.lost_id, m.found_id, shortText(m.found?.description, 40, "Found item"))}>

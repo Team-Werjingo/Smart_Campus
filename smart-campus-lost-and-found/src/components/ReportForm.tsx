@@ -85,7 +85,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
             description: description.trim(),
             photo_path: photoPath,
             lost_location: location.trim(),
-            time_lost: new Date(when).toISOString(),
+            date_lost: new Date(when).toISOString(),
           })
           .select("id")
           .single();
@@ -99,7 +99,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
             photo_path: photoPath,
             description: description.trim() || null,
             found_location: location.trim(),
-            time_found: new Date(when).toISOString(),
+            date_found: new Date(when).toISOString(),
             kept_with: keptWith,
           })
           .select("id")
