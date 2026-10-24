@@ -78,6 +78,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
 
       let id: string;
       if (kind === "lost") {
+        const reportDate = new Date(when).toISOString();
         const { data, error } = await supabase
           .from("lost_items")
           .insert({
@@ -85,13 +86,15 @@ export function ReportForm({ kind }: { kind: Kind }) {
             description: description.trim(),
             photo_path: photoPath,
             lost_location: location.trim(),
-            date_lost: new Date(when).toISOString(),
+            date_lost: reportDate,
+            time_lost: reportDate,
           })
           .select("id")
           .single();
         if (error) throw error;
         id = data.id;
       } else {
+        const reportDate = new Date(when).toISOString();
         const { data, error } = await supabase
           .from("found_items")
           .insert({
@@ -99,7 +102,8 @@ export function ReportForm({ kind }: { kind: Kind }) {
             photo_path: photoPath,
             description: description.trim() || null,
             found_location: location.trim(),
-            date_found: new Date(when).toISOString(),
+            date_found: reportDate,
+            time_found: reportDate,
             kept_with: keptWith,
           })
           .select("id")
