@@ -3,13 +3,35 @@
 TanStack Start + Tailwind, connected to your own Supabase project.
 
 1. `npm install`
-2. Copy `.env.example` to `.env` and fill in the two values (steps are written inside the file)
-3. Supabase -> SQL Editor: run your main schema, then `supabase/fixes.sql`
-4. Supabase -> Authentication -> Email Templates -> "Confirm signup": add `{{ .Token }}` so the email shows the 6-digit code
-5. `npm run dev`
+2. Copy `.env.example` to `.env` and fill in the Supabase URL and publishable key.
+3. Run your main schema, then `supabase/fixes.sql`, in Supabase SQL Editor.
+4. Generate a random token and save it as the Google Secret Manager secret `siglip-service-token`. Grant the Cloud Run runtime service account access to that secret, then deploy `siglip-service` from the app directory:
+   ```sh
+   gcloud run deploy siglip-service \
+     --source siglip-service \
+     --region YOUR_REGION \
+     --allow-unauthenticated \
+     --memory 4Gi \
+     --cpu 4 \
+     --concurrency 1 \
+     --timeout 900 \
+     --set-secrets SIGLIP_SERVICE_TOKEN=siglip-service-token:latest
+   ```
+   The container loads Google's `google/siglip2-base-patch16-224` model from Hugging Face on startup. Although Cloud Run allows the HTTP request, the endpoint requires the shared token.
+5. In Supabase -> Edge Functions -> Secrets, set:
+   - `SIGLIP_EMBEDDING_URL`: the Cloud Run service URL
+   - `SIGLIP_SERVICE_TOKEN`: the same secret configured on Cloud Run
+6. Deploy the Supabase Edge Function: `supabase functions deploy embed-item`.
+7. In Supabase -> Authentication -> Email Templates -> "Confirm signup", add `{{ .Token }}` so the email shows the 6-digit code.
+8. Run `npm run dev`.
 
-Matches appear once your backend fills `score_comparison`. This app calls an Edge Function named `embed-item`
-after each report (see `triggerMatching` in `src/lib/items.ts`).
+Each report invokes `embed-item`: it stores SigLIP 2 image and/or text embeddings, then calculates normalized cosine similarity across lost descriptions and found images. Pairs above the configured threshold are saved to `score_comparison`; the dashboard displays the top three scores per open lost report. The initial threshold is `0.30`; change it in Supabase SQL Editor, for example:
+
+```sql
+update matching_settings
+set cosine_threshold = 0.35
+where singleton = true;
+```
 
 ## Deploy to Netlify
 

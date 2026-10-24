@@ -29,17 +29,10 @@ export function shortText(text: string | null | undefined, max = 60, fallback = 
   return t.length > max ? `${t.slice(0, max).trim()}…` : t;
 }
 
-// After a report is saved, this asks your matching backend to create the embeddings and fill
-// score_comparison. Create a Supabase Edge Function called "embed-item" for it
-// (Supabase dashboard -> Edge Functions). It receives { type: "lost" | "found", id }.
-// Until that function exists the report still saves, matches just won't appear.
+// The Edge Function stores SigLIP 2 embeddings and updates score_comparison.
 export async function triggerMatching(type: "lost" | "found", id: string) {
-  try {
-    const { error } = await supabase.functions.invoke("embed-item", { body: { type, id } });
-    return !error;
-  } catch {
-    return false;
-  }
+  const { error } = await supabase.functions.invoke("embed-item", { body: { type, id } });
+  if (error) throw error;
 }
 
 export type Conversation = {

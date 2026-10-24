@@ -85,7 +85,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
             description: description.trim(),
             photo_path: photoPath,
             lost_location: location.trim(),
-            date_lost: when.slice(0, 10),
+            time_lost: new Date(when).toISOString(),
           })
           .select("id")
           .single();
@@ -99,7 +99,6 @@ export function ReportForm({ kind }: { kind: Kind }) {
             photo_path: photoPath,
             description: description.trim() || null,
             found_location: location.trim(),
-            date_found: when.slice(0, 10),
             time_found: new Date(when).toISOString(),
             kept_with: keptWith,
           })
@@ -109,9 +108,13 @@ export function ReportForm({ kind }: { kind: Kind }) {
         id = data.id;
       }
 
-      const matching = await triggerMatching(kind, id);
-      if (matching) toast.success("Report saved. We're checking for matches.");
-      else toast.success("Report saved. Matches will show up once matching is connected.");
+      try {
+        await triggerMatching(kind, id);
+        toast.success("Report saved. We're checking for matches.");
+      } catch (error) {
+        const detail = error instanceof Error ? ` ${error.message}` : "";
+        toast.error(`Report saved, but matching could not be completed.${detail}`);
+      }
       queryClient.invalidateQueries();
       navigate({ to: "/dashboard" });
     } catch (err) {

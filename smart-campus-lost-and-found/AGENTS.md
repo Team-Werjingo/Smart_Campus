@@ -12,5 +12,5 @@
 ## Architecture rules
 - Stack is TanStack Start + Supabase (Postgres/pgvector, Auth, Storage) using the project's own schema: profiles, lost_items, found_items, lost_embeddings, found_embeddings, score_comparison, messages.
 - The browser talks to Supabase directly under RLS. Reports are inserted from `ReportForm`, photos go to the private `report-images` bucket under `{userId}/...`.
-- Matching runs in the backend (Edge Function `embed-item`, called by `triggerMatching` in `src/lib/items.ts`) and writes rows into `score_comparison` with a score between 0 and 1.
+- Matching runs in the backend (Edge Function `embed-item`, called by `triggerMatching` in `src/lib/items.ts`); it calls the SigLIP 2 service in `siglip-service/`, stores 768-dimensional vectors, and writes above-threshold cosine scores to `score_comparison`. The configurable threshold is in `matching_settings`.
 - Chat lives in `messages`, one conversation per (lost_id, found_id) pair that exists in `score_comparison`.
