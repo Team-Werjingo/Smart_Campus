@@ -43,6 +43,9 @@ begin
       raise exception 'Found item has no image embedding';
     end if;
 
+    delete from score_comparison
+    where found_id = p_item_id;
+
     insert into score_comparison (lost_id, found_id, score)
     select le.lost_id, p_item_id, similarity.score
     from lost_embeddings le
@@ -63,6 +66,9 @@ begin
     if v_embedding is null then
       raise exception 'Lost item has no text embedding';
     end if;
+
+    delete from score_comparison
+    where lost_id = p_item_id;
 
     insert into score_comparison (lost_id, found_id, score)
     select p_item_id, fe.found_id, similarity.score
