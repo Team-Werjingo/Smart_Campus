@@ -6,6 +6,7 @@ import { ArrowLeft, Camera, ImagePlus, Loader2, Building2, Hand, X } from "lucid
 import { supabase } from "@/integrations/supabase/client";
 import { IMAGE_BUCKET, triggerMatching } from "@/lib/items";
 import { imageEmbedding, textEmbedding } from "@/lib/clip";
+import { compressImage, MAX_COMPRESSED_IMAGE_BYTES } from "@/lib/image-compression";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => setWhen(localNow()), []);
@@ -45,7 +47,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  function pick(f: File | undefined | null) {
+  async function pick(f: File | undefined | null) {
     if (!f) return;
     if (!f.type.startsWith("image/")) {
       toast.error("Please choose an image");
@@ -55,7 +57,14 @@ export function ReportForm({ kind }: { kind: Kind }) {
       toast.error("Image must be under 10 MB");
       return;
     }
-    setFile(f);
+    setCompressing(true);
+    try {
+      setFile(await compressImage(f));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not compress this image");
+    } finally {
+      setCompressing(false);
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -154,7 +163,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
             accept="image/*"
             {...(isFound ? { capture: "environment" as const } : {})}
             className="hidden"
-            onChange={(e) => pick(e.target.files?.[0])}
+            onChange={(e) => void pick(e.target.files?.[0])}
           />
           {preview ? (
             <div className="relative mt-3 overflow-hidden rounded-lg border-2 border-foreground">
@@ -167,12 +176,14 @@ export function ReportForm({ kind }: { kind: Kind }) {
               onClick={() => fileRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(false); pick(e.dataTransfer.files?.[0]); }}
+              onDrop={(e) => { e.preventDefault(); setDragOver(false); void pick(e.dataTransfer.files?.[0]); }}
+              aria-disabled={compressing || busy}
+              disabled={compressing || busy}
               className={`mt-3 flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-foreground transition-colors ${dragOver ? "bg-accent" : "bg-muted hover:bg-secondary"}`}
             >
               {isFound ? <Camera className="h-10 w-10" /> : <ImagePlus className="h-10 w-10" />}
-              <span className="font-semibold">{isFound ? "Take or upload a photo" : "Drop an image or browse your gallery"}</span>
-              <span className="text-xs text-muted-foreground">JPG or PNG, up to 10 MB</span>
+              <span className="font-semibold">{compressing ? "Compressing photo…" : isFound ? "Take or upload a photo" : "Drop an image or browse your gallery"}</span>
+              <span className="text-xs text-muted-foreground">JPG or PNG, compressed to about {Math.round(MAX_COMPRESSED_IMAGE_BYTES / 1024 / 1024)} MB or less</span>
             </button>
           )}
         </section>
@@ -219,7 +230,7 @@ export function ReportForm({ kind }: { kind: Kind }) {
           </section>
         )}
 
-        <Button type="submit" variant={isFound ? "ink" : "hero"} size="xl" disabled={busy}>
+        <Button type="submit" variant={isFound ? "ink" : "hero"} size="xl" disabled={busy || compressing}>
           {busy && <Loader2 className="animate-spin" />}
           {busy ? "Saving…" : "Submit report"}
         </Button>

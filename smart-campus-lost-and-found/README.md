@@ -28,7 +28,7 @@ TanStack Start + Tailwind, connected to your own Supabase project.
 7. In Supabase -> Authentication -> Email Templates -> "Confirm signup", add `{{ .Token }}` so the email shows the 6-digit code.
 8. Run `npm run dev`.
 
-Each report generates a normalized CLIP image and/or text embedding in the user's browser, then invokes `embed-item` to store the 512-dimensional vectors and calculate normalized cosine similarity across lost descriptions and found images. Pairs above the configured threshold are saved to `score_comparison`; the dashboard displays the top three scores per open lost report. Run `supabase/clip-migration.sql` once in the Supabase SQL Editor before using the browser CLIP flow. The initial threshold is `0.30`; change it in Supabase SQL Editor, for example:
+Each report compresses its selected image in the browser to a maximum dimension of 1600 pixels and a target of about 500 KB before uploading it to Supabase or generating a normalized CLIP image embedding. The compressed image remains suitable for item-level visual matching; extremely fine details may be less clear than in the original camera file. It then invokes `embed-item` to store the 512-dimensional vectors and calculate normalized cosine similarity across lost descriptions and found images. Pairs above the configured threshold are saved to `score_comparison`; the dashboard displays the top three scores per open lost report. Run `supabase/clip-migration.sql` once in the Supabase SQL Editor before using the browser CLIP flow. The initial threshold is `0.30`; change it in Supabase SQL Editor, for example:
 
 ```sql
 update matching_settings
