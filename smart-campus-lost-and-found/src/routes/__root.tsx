@@ -121,6 +121,32 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
+    let cancelled = false;
+    const startPreload = () => {
+      if (cancelled) return;
+      void import("../lib/clip")
+        .then(({ preloadClip }) => preloadClip())
+        .catch((error) => {
+          console.warn("Could not preload the matching model", error);
+        });
+    };
+
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(startPreload, { timeout: 5000 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(idleId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(startPreload, 2000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
+
+  useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
