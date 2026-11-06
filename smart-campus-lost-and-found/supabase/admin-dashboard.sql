@@ -208,6 +208,60 @@ $$;
 revoke all on function public.get_admin_dashboard_analytics(timestamptz) from public, anon;
 grant execute on function public.get_admin_dashboard_analytics(timestamptz) to authenticated;
 
+create or replace function public.list_admin_dashboard_users()
+returns table (
+  user_id uuid,
+  full_name text,
+  email text,
+  role text,
+  lost_count bigint,
+  found_count bigint,
+  lost_returned_count bigint,
+  found_returned_count bigint
+)
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if not public.can_access_admin_dashboard() then
+    raise exception 'Admin access is required';
+  end if;
+
+  return query
+    with lost_counts as (
+      select li.user_id,
+        count(*) as total,
+        count(*) filter (where lower(li.status::text) = 'returned') as returned
+      from public.lost_items li
+      group by li.user_id
+    ),
+    found_counts as (
+      select fi.user_id,
+        count(*) as total,
+        count(*) filter (where lower(fi.status::text) = 'returned') as returned
+      from public.found_items fi
+      group by fi.user_id
+    )
+    select p.id,
+      coalesce(p.full_name, 'Campus user')::text,
+      u.email::text,
+      p.role,
+      coalesce(lost_counts.total, 0)::bigint,
+      coalesce(found_counts.total, 0)::bigint,
+      coalesce(lost_counts.returned, 0)::bigint,
+      coalesce(found_counts.returned, 0)::bigint
+    from public.profiles p
+    join auth.users u on u.id = p.id
+    left join lost_counts on lost_counts.user_id = p.id
+    left join found_counts on found_counts.user_id = p.id
+    order by lower(coalesce(p.full_name, u.email)), p.id;
+end
+$$;
+
+revoke all on function public.list_admin_dashboard_users() from public, anon;
+grant execute on function public.list_admin_dashboard_users() to authenticated;
+
 create or replace function public.list_admin_users()
 returns table (user_id uuid, full_name text, email text, role text)
 language plpgsql

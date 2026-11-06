@@ -2,16 +2,20 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
+  Activity,
   ArrowDownToLine,
   ArrowLeft,
-  BarChart3,
   Building2,
   CalendarDays,
   Check,
+  ClipboardList,
   ImageOff,
+  LayoutDashboard,
   Loader2,
   MailCheck,
+  MessageSquareWarning,
   RefreshCw,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Users,
@@ -19,18 +23,22 @@ import {
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { AppNav, useMe } from "@/components/AppNav";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { signedUrls, shortText } from "@/lib/items";
 
@@ -45,35 +53,30 @@ export const Route = createFileRoute("/_authenticated/admin")({
 });
 
 const PAGE_SIZE = 40;
-const REPORT_TYPE_CHART: ChartConfig = {
-  count: { label: "Reports", color: "var(--primary)" },
-};
-
-const LOCATION_CHART: ChartConfig = {
-  count: { label: "Reports", color: "var(--chart-2)" },
-};
+const REPORT_TYPE_CHART: ChartConfig = { count: { label: "Reports", color: "var(--primary)" } };
+const LOCATION_CHART: ChartConfig = { count: { label: "Reports", color: "var(--chart-2)" } };
 
 type DashboardRange = "7d" | "30d" | "90d" | "all";
+type AdminSection = "dashboard" | "disputes" | "users" | "reports" | "matching" | "office" | "audit" | "settings";
+type UserRole = "user" | "admin" | "superadmin";
 
-function rangeStart(range: DashboardRange) {
-  if (range === "all") return null;
-  const days = Number.parseInt(range, 10);
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-  return start.toISOString();
-}
-
-function rangeLabel(range: DashboardRange) {
-  if (range === "all") return "All time";
-  return `Last ${Number.parseInt(range, 10)} days`;
-}
+const sections: { id: AdminSection; label: string; icon: typeof LayoutDashboard }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "disputes", label: "Disputes", icon: MessageSquareWarning },
+  { id: "users", label: "Users", icon: Users },
+  { id: "reports", label: "Reports", icon: ClipboardList },
+  { id: "matching", label: "Matching Performance", icon: Activity },
+  { id: "office", label: "Office-Held Items", icon: Building2 },
+  { id: "audit", label: "Audit Log", icon: ClipboardList },
+  { id: "settings", label: "Settings", icon: Settings },
+];
 
 type AdminMatch = {
   lost_id: string;
   found_id: string;
   score: number;
   created_at: string;
-  lost: { id: string; description: string; status: string } | null;
+  lost: { id: string; description: string | null; photo_path: string | null; status: string } | null;
   found: {
     id: string;
     description: string | null;
@@ -83,22 +86,46 @@ type AdminMatch = {
     kept_with: string;
     status: string;
   } | null;
-  photo: string | null;
+  foundPhoto: string | null;
+  lostPhoto: string | null;
 };
 
-type OfficeItem = {
+type AdminItem = {
   id: string;
+  user_id: string;
   description: string | null;
   photo_path: string | null;
-  found_location: string;
-  date_found: string;
-  kept_with: string;
+  location: string;
+  date: string;
   status: string;
-  created_at: string;
+  kept_with?: string;
   photo: string | null;
 };
 
-type AdminUser = { user_id: string; full_name: string; email: string; role: "user" | "admin" | "superadmin" };
+type AdminUser = {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role: UserRole;
+  lost_count: number;
+  found_count: number;
+  lost_returned_count: number;
+  found_returned_count: number;
+};
+
+type PendingRoleChange = { user: AdminUser; role: "user" | "admin" } | null;
+type ImagePreview = { url: string; title: string } | null;
+
+function rangeStart(range: DashboardRange) {
+  if (range === "all") return null;
+  const start = new Date();
+  start.setDate(start.getDate() - Number.parseInt(range, 10));
+  return start.toISOString();
+}
+
+function rangeLabel(range: DashboardRange) {
+  return range === "all" ? "All time" : `Last ${Number.parseInt(range, 10)} days`;
+}
 
 async function invokeMfa(action: "status" | "send" | "verify", code?: string) {
   const { data, error } = await supabase.functions.invoke("admin-mfa", { body: { action, code } });
@@ -111,16 +138,21 @@ function AdminDashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: me, isLoading: meLoading } = useMe();
+  const [section, setSection] = useState<AdminSection>("dashboard");
   const [otp, setOtp] = useState("");
-  const [selectedOfficeItem, setSelectedOfficeItem] = useState<OfficeItem | null>(null);
   const [matchPage, setMatchPage] = useState(0);
   const [officePage, setOfficePage] = useState(0);
+  const [lostPage, setLostPage] = useState(0);
+  const [foundPage, setFoundPage] = useState(0);
   const [threshold, setThreshold] = useState("");
   const [dateRange, setDateRange] = useState<DashboardRange>("30d");
+  const [pendingRoleChange, setPendingRoleChange] = useState<PendingRoleChange>(null);
+  const [imagePreview, setImagePreview] = useState<ImagePreview>(null);
 
   const isSuperadmin = me?.role === "superadmin";
   const isAdmin = me?.role === "admin";
   const since = rangeStart(dateRange);
+
   const mfaQuery = useQuery({
     queryKey: ["admin-mfa", me?.id],
     queryFn: async () => (await invokeMfa("status")).verified === true,
@@ -133,115 +165,35 @@ function AdminDashboard() {
     queryKey: ["admin-stats", dateRange],
     enabled: canView,
     queryFn: async () => {
-      const lostQuery = supabase.from("lost_items").select("id", { count: "exact", head: true });
-      const foundQuery = supabase.from("found_items").select("id", { count: "exact", head: true });
-      const activeLostQuery = supabase.from("lost_items").select("id", { count: "exact", head: true }).eq("status", "open");
-      const activeFoundQuery = supabase.from("found_items").select("id", { count: "exact", head: true }).eq("status", "open");
-      const officeQuery = supabase.from("found_items").select("id", { count: "exact", head: true }).eq("kept_with", "office").eq("status", "open");
-      const matchesQuery = supabase.from("score_comparison").select("lost_id", { count: "exact", head: true });
-      const [lost, found, activeLost, activeFound, office, matches] = await Promise.all([
-        since ? lostQuery.gte("created_at", since) : lostQuery,
-        since ? foundQuery.gte("created_at", since) : foundQuery,
-        since ? activeLostQuery.gte("created_at", since) : activeLostQuery,
-        since ? activeFoundQuery.gte("created_at", since) : activeFoundQuery,
-        since ? officeQuery.gte("created_at", since) : officeQuery,
-        since ? matchesQuery.gte("created_at", since) : matchesQuery,
+      const lost = supabase.from("lost_items").select("id", { count: "exact", head: true });
+      const found = supabase.from("found_items").select("id", { count: "exact", head: true });
+      const lostOpen = supabase.from("lost_items").select("id", { count: "exact", head: true }).eq("status", "open");
+      const foundOpen = supabase.from("found_items").select("id", { count: "exact", head: true }).eq("status", "open");
+      const returnedLost = supabase.from("lost_items").select("id", { count: "exact", head: true }).eq("status", "returned");
+      const returnedFound = supabase.from("found_items").select("id", { count: "exact", head: true }).eq("status", "returned");
+      const office = supabase.from("found_items").select("id", { count: "exact", head: true }).eq("kept_with", "office");
+      const matches = supabase.from("score_comparison").select("lost_id", { count: "exact", head: true });
+      const results = await Promise.all([
+        since ? lost.gte("created_at", since) : lost,
+        since ? found.gte("created_at", since) : found,
+        since ? lostOpen.gte("created_at", since) : lostOpen,
+        since ? foundOpen.gte("created_at", since) : foundOpen,
+        since ? returnedLost.gte("created_at", since) : returnedLost,
+        since ? returnedFound.gte("created_at", since) : returnedFound,
+        since ? office.gte("created_at", since) : office,
+        since ? matches.gte("created_at", since) : matches,
       ]);
-      const error = [lost, found, activeLost, activeFound, office, matches].find((r) => r.error)?.error;
+      const error = results.find((result) => result.error)?.error;
       if (error) throw error;
+      const [lostResult, foundResult, lostOpenResult, foundOpenResult, returnedLostResult, returnedFoundResult, officeResult, matchesResult] = results;
       return {
-        lost: lost.count ?? 0,
-        found: found.count ?? 0,
-        active: (activeLost.count ?? 0) + (activeFound.count ?? 0),
-        office: office.count ?? 0,
-        matches: matches.count ?? 0,
+        lost: lostResult.count ?? 0,
+        found: foundResult.count ?? 0,
+        open: (lostOpenResult.count ?? 0) + (foundOpenResult.count ?? 0),
+        returned: (returnedLostResult.count ?? 0) + (returnedFoundResult.count ?? 0),
+        office: officeResult.count ?? 0,
+        matches: matchesResult.count ?? 0,
       };
-    },
-  });
-
-  const matchesQuery = useQuery({
-    queryKey: ["admin-matches", matchPage, dateRange],
-    enabled: canView,
-    queryFn: async () => {
-      const start = matchPage * PAGE_SIZE;
-      let query = supabase
-        .from("score_comparison")
-        .select(`lost_id, found_id, score, created_at,
-          lost:lost_items!inner(id, description, status),
-          found:found_items!inner(id, description, photo_path, found_location, date_found, kept_with, status)`);
-      if (since) query = query.gte("created_at", since);
-      const { data, error } = await query
-        .order("score", { ascending: false })
-        .order("lost_id", { ascending: true })
-        .order("found_id", { ascending: true })
-        .range(start, start + PAGE_SIZE - 1);
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as Omit<AdminMatch, "photo">[];
-      const urls = await signedUrls(rows.map((match) => match.found?.photo_path));
-      return rows.map((match) => ({
-        ...match,
-        photo: match.found?.photo_path ? urls[match.found.photo_path] ?? null : null,
-      })) as AdminMatch[];
-    },
-  });
-
-  const officeQuery = useQuery({
-    queryKey: ["admin-office-items", officePage, dateRange],
-    enabled: canView,
-    queryFn: async () => {
-      const start = officePage * PAGE_SIZE;
-      let query = supabase
-        .from("found_items")
-        .select("id, description, photo_path, found_location, date_found, kept_with, status, created_at")
-        .eq("kept_with", "office")
-        .eq("status", "open");
-      if (since) query = query.gte("created_at", since);
-      const { data, error } = await query
-        .order("date_found", { ascending: false })
-        .order("id", { ascending: true })
-        .range(start, start + PAGE_SIZE - 1);
-      if (error) throw error;
-      const rows = data ?? [];
-      const urls = await signedUrls(rows.map((item) => item.photo_path));
-      return rows.map((item) => ({
-        ...item,
-        photo: item.photo_path ? urls[item.photo_path] ?? null : null,
-      })) as OfficeItem[];
-    },
-  });
-
-  const recentReportsQuery = useQuery({
-    queryKey: ["admin-recent-reports", dateRange],
-    enabled: canView,
-    queryFn: async () => {
-      const lostQuery = supabase.from("lost_items").select("id, description, lost_location, status, created_at");
-      const foundQuery = supabase.from("found_items").select("id, description, found_location, kept_with, status, created_at");
-      const [lost, found] = await Promise.all([
-        (since ? lostQuery.gte("created_at", since) : lostQuery).order("created_at", { ascending: false }).limit(25),
-        (since ? foundQuery.gte("created_at", since) : foundQuery).order("created_at", { ascending: false }).limit(25),
-      ]);
-      if (lost.error) throw lost.error;
-      if (found.error) throw found.error;
-      return [
-        ...(lost.data ?? []).map((item) => ({
-          id: item.id,
-          kind: "Lost",
-          description: item.description ?? "Description not provided",
-          location: item.lost_location,
-          status: item.status,
-          created_at: item.created_at,
-          kept_with: null as string | null,
-        })),
-        ...(found.data ?? []).map((item) => ({
-          id: item.id,
-          kind: "Found",
-          description: item.description ?? "Description not provided",
-          location: item.found_location,
-          status: item.status,
-          created_at: item.created_at,
-          kept_with: item.kept_with,
-        })),
-      ].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 30);
     },
   });
 
@@ -259,27 +211,133 @@ function AdminDashboard() {
       }
       return {
         byType: [...byType].map(([type, count]) => ({ type, count })),
-        byLocation: [...byLocation]
-          .map(([location, count]) => ({ location, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 8),
+        byLocation: [...byLocation].map(([location, count]) => ({ location, count })).sort((a, b) => b.count - a.count).slice(0, 8),
       };
     },
   });
 
   const usersQuery = useQuery({
-    queryKey: ["admin-users"],
-    enabled: canView && isSuperadmin,
+    queryKey: ["admin-dashboard-users"],
+    enabled: canView,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("list_admin_users");
+      const { data, error } = await supabase.rpc("list_admin_dashboard_users");
       if (error) throw error;
       return (data ?? []) as AdminUser[];
     },
   });
 
+  const matchesQuery = useQuery({
+    queryKey: ["admin-matches", matchPage],
+    enabled: canView && section === "matching",
+    queryFn: async () => {
+      const start = matchPage * PAGE_SIZE;
+      const { data, error } = await supabase
+        .from("score_comparison")
+        .select(`lost_id, found_id, score, created_at,
+          lost:lost_items!inner(id, description, photo_path, status),
+          found:found_items!inner(id, description, photo_path, found_location, date_found, kept_with, status)`)
+        .order("score", { ascending: false })
+        .order("lost_id", { ascending: true })
+        .order("found_id", { ascending: true })
+        .range(start, start + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Omit<AdminMatch, "foundPhoto" | "lostPhoto">[];
+      const urls = await signedUrls(rows.flatMap((row) => [row.found?.photo_path, row.lost?.photo_path]));
+      return rows.map((row) => ({
+        ...row,
+        foundPhoto: row.found?.photo_path ? urls[row.found.photo_path] ?? null : null,
+        lostPhoto: row.lost?.photo_path ? urls[row.lost.photo_path] ?? null : null,
+      })) as AdminMatch[];
+    },
+  });
+
+  const lostItemsQuery = useQuery({
+    queryKey: ["admin-lost-reports", lostPage],
+    enabled: canView && section === "reports",
+    queryFn: async () => {
+      const start = lostPage * PAGE_SIZE;
+      const { data, error } = await supabase
+        .from("lost_items")
+        .select("id, user_id, description, photo_path, lost_location, date_lost, status")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(start, start + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      const urls = await signedUrls(rows.map((item) => item.photo_path));
+      return rows.map((item) => ({
+        id: item.id,
+        user_id: item.user_id,
+        description: item.description,
+        photo_path: item.photo_path,
+        location: item.lost_location,
+        date: item.date_lost,
+        status: item.status,
+        photo: item.photo_path ? urls[item.photo_path] ?? null : null,
+      })) as AdminItem[];
+    },
+  });
+
+  const foundItemsQuery = useQuery({
+    queryKey: ["admin-found-reports", foundPage],
+    enabled: canView && section === "reports",
+    queryFn: async () => {
+      const start = foundPage * PAGE_SIZE;
+      const { data, error } = await supabase
+        .from("found_items")
+        .select("id, user_id, description, photo_path, found_location, date_found, kept_with, status")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(start, start + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      const urls = await signedUrls(rows.map((item) => item.photo_path));
+      return rows.map((item) => ({
+        id: item.id,
+        user_id: item.user_id,
+        description: item.description,
+        photo_path: item.photo_path,
+        location: item.found_location,
+        date: item.date_found,
+        status: item.status,
+        kept_with: item.kept_with,
+        photo: item.photo_path ? urls[item.photo_path] ?? null : null,
+      })) as AdminItem[];
+    },
+  });
+
+  const officeQuery = useQuery({
+    queryKey: ["admin-office-items", officePage],
+    enabled: canView && section === "office",
+    queryFn: async () => {
+      const start = officePage * PAGE_SIZE;
+      const { data, error } = await supabase
+        .from("found_items")
+        .select("id, user_id, description, photo_path, found_location, date_found, kept_with, status")
+        .eq("kept_with", "office")
+        .order("date_found", { ascending: false })
+        .order("id", { ascending: true })
+        .range(start, start + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      const urls = await signedUrls(rows.map((item) => item.photo_path));
+      return rows.map((item) => ({
+        id: item.id,
+        user_id: item.user_id,
+        description: item.description,
+        photo_path: item.photo_path,
+        location: item.found_location,
+        date: item.date_found,
+        kept_with: item.kept_with,
+        status: item.status,
+        photo: item.photo_path ? urls[item.photo_path] ?? null : null,
+      })) as AdminItem[];
+    },
+  });
+
   const thresholdQuery = useQuery({
     queryKey: ["admin-matching-threshold"],
-    enabled: canView && isSuperadmin,
+    enabled: canView && isSuperadmin && section === "settings",
     queryFn: async () => {
       const { data, error } = await supabase
         .from("matching_settings")
@@ -308,13 +366,17 @@ function AdminDashboard() {
   });
 
   const setRole = useMutation({
-    mutationFn: async ({ id, role }: { id: string; role: "user" | "admin" }) => {
-      const { error } = await supabase.rpc("set_user_role", { p_user_id: id, p_role: role });
+    mutationFn: async (change: NonNullable<PendingRoleChange>) => {
+      const { error } = await supabase.rpc("set_user_role", { p_user_id: change.user.user_id, p_role: change.role });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      setPendingRoleChange(null);
       toast.success("Account role updated");
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-dashboard-users"] }),
+        queryClient.invalidateQueries({ queryKey: ["me"] }),
+      ]);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not update role"),
   });
@@ -322,23 +384,17 @@ function AdminDashboard() {
   const saveThreshold = useMutation({
     mutationFn: async () => {
       const value = Number(threshold);
-      if (!Number.isFinite(value) || value < 0 || value > 1) {
-        throw new Error("Enter a value between 0 and 1.");
-      }
+      if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error("Enter a value between 0 and 1.");
       const { error } = await supabase.rpc("set_matching_threshold", { p_threshold: value });
       if (error) throw error;
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["admin-matching-threshold"] });
+      setThreshold("");
       toast.success("Match threshold saved");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save threshold"),
   });
-
-  const stats = statsQuery.data;
-  const currentMatches = matchesQuery.data ?? [];
-  const currentOfficeItems = officeQuery.data ?? [];
-  const reportAnalytics = reportAnalyticsQuery.data;
 
   if (meLoading) {
     return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>;
@@ -361,7 +417,6 @@ function AdminDashboard() {
   }
 
   if (isSuperadmin && (mfaQuery.isLoading || !mfaQuery.data)) {
-    const mfaError = mfaQuery.error;
     return (
       <div className="min-h-screen">
         <AppNav />
@@ -373,17 +428,11 @@ function AdminDashboard() {
               <h1 className="text-3xl font-bold">Verify your email</h1>
               <p className="mt-2 text-sm text-muted-foreground">Superadmin access requires a fresh email one-time code for this signed-in session. Verification expires after four hours.</p>
             </div>
-            {mfaError && <p role="alert" className="rounded-lg border-2 border-destructive p-3 text-sm">Could not check verification status. Confirm the admin-mfa function is deployed, then retry.</p>}
+            {mfaQuery.error && <ErrorBanner message="Could not check verification status. Confirm the admin-mfa function is deployed, then retry." />}
             <Button variant="hero" className="w-full" disabled={sendOtp.isPending} onClick={() => sendOtp.mutate()}>
               {sendOtp.isPending ? <Loader2 className="animate-spin" /> : <MailCheck />} Send email code
             </Button>
-            <form
-              className="space-y-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                verifyOtp.mutate();
-              }}
-            >
+            <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); verifyOtp.mutate(); }}>
               <Label htmlFor="admin-otp">6-digit code</Label>
               <Input id="admin-otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))} className="border-2 text-lg tracking-[0.3em]" />
               <Button type="submit" className="w-full" disabled={otp.length !== 6 || verifyOtp.isPending}>
@@ -397,345 +446,658 @@ function AdminDashboard() {
     );
   }
 
-  function loadMoreMatches() {
-    setMatchPage((page) => page + 1);
-  }
-
-  function loadMoreOffice() {
-    setOfficePage((page) => page + 1);
-  }
-
-  const thresholdValue = thresholdQuery.data;
+  const stats = statsQuery.data;
+  const analytics = reportAnalyticsQuery.data;
+  const returnedRate = stats && stats.lost + stats.found > 0
+    ? Math.round((stats.returned / (stats.lost + stats.found)) * 100)
+    : 0;
 
   return (
     <div className="min-h-screen">
       <AppNav />
-      <main className="mx-auto max-w-7xl space-y-8 px-5 py-8">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border-2 border-foreground bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wide">
-              <ShieldCheck className="h-4 w-4" /> {isSuperadmin ? "Superadmin" : "Admin"} dashboard
-            </div>
-            <h1 className="text-4xl font-bold">Campus overview</h1>
-            <p className="mt-1 text-muted-foreground">Live lost-and-found activity and AI match results.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-semibold" htmlFor="dashboard-range">
-              <CalendarDays className="h-4 w-4" /> Date range
-            </label>
-            <select
-              id="dashboard-range"
-              value={dateRange}
-              onChange={(event) => {
-                setDateRange(event.target.value as DashboardRange);
-                setMatchPage(0);
-                setOfficePage(0);
-              }}
-              className="rounded-md border-2 border-foreground bg-card px-3 py-2 text-sm font-semibold"
-            >
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 90 days</option>
-              <option value="all">All time</option>
-            </select>
-            <Button
-              variant="outline"
-              className="border-2 border-foreground"
-              onClick={() => queryClient.invalidateQueries({ predicate: (query) => String(query.queryKey[0]).startsWith("admin-") })}
-            >
-              <RefreshCw className="h-4 w-4" /> Refresh dashboard
-            </Button>
-          </div>
-        </div>
-
-        {statsQuery.error && <ErrorBanner message="Dashboard statistics could not be loaded. Verify the admin RLS migration was applied." />}
-
-        <section aria-label="Dashboard statistics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <StatCard label="Lost reports" value={stats?.lost} hint={rangeLabel(dateRange)} />
-          <StatCard label="Found reports" value={stats?.found} hint={rangeLabel(dateRange)} />
-          <StatCard label="Open reports" value={stats?.active} hint={`${rangeLabel(dateRange)} · Lost + found`} />
-          <StatCard label="Held at office" value={stats?.office} hint={`${rangeLabel(dateRange)} · Ready for collection`} />
-          <StatCard label="AI comparisons" value={stats?.matches} hint={rangeLabel(dateRange)} />
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-2">
-          <div className="panel p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              <div>
-                <h2 className="text-xl font-bold">Reports by type</h2>
-                <p className="text-sm text-muted-foreground">Lost and found submissions in {rangeLabel(dateRange).toLowerCase()}.</p>
-              </div>
-            </div>
-            {reportAnalyticsQuery.error ? <ErrorBanner message="Report analytics could not be loaded." /> : reportAnalyticsQuery.isLoading ? <LoadingRows /> : reportAnalytics?.byType.length ? (
-              <ChartContainer config={REPORT_TYPE_CHART} className="h-64 w-full aspect-auto">
-                <BarChart data={reportAnalytics.byType} accessibilityLayer>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="type" tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" name="Reports" fill="var(--color-count)" radius={4} />
-                </BarChart>
-              </ChartContainer>
-            ) : <p className="py-12 text-center text-sm text-muted-foreground">No reports in this date range.</p>}
-          </div>
-
-          <div className="panel p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
-              <div>
-                <h2 className="text-xl font-bold">Reports by location</h2>
-                <p className="text-sm text-muted-foreground">Top campus locations in {rangeLabel(dateRange).toLowerCase()}.</p>
-              </div>
-            </div>
-            {reportAnalyticsQuery.error ? <ErrorBanner message="Report analytics could not be loaded." /> : reportAnalyticsQuery.isLoading ? <LoadingRows /> : reportAnalytics?.byLocation.length ? (
-              <ChartContainer config={LOCATION_CHART} className="h-64 w-full aspect-auto">
-                <BarChart data={reportAnalytics.byLocation} accessibilityLayer>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="location" tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" height={55} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" name="Reports" fill="var(--color-count)" radius={4} />
-                </BarChart>
-              </ChartContainer>
-            ) : <p className="py-12 text-center text-sm text-muted-foreground">No reports in this date range.</p>}
-          </div>
-        </section>
-
-        <section className="panel overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-foreground p-5">
-            <div>
-              <h2 className="text-2xl font-bold">Score comparisons</h2>
-              <p className="text-sm text-muted-foreground">Every lost/found match row, with the lost description, found photo and score.</p>
-            </div>
-            <Badge variant="outline" className="border-2 border-foreground">{stats?.matches ?? "—"} total</Badge>
-          </div>
-          {matchesQuery.isLoading ? <LoadingRows /> : matchesQuery.error ? (
-            <ErrorBanner message="Match records could not be loaded. Check score_comparison and report-table admin SELECT policies." />
-          ) : currentMatches.length === 0 && matchPage === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">There are no score_comparison rows yet.</div>
-          ) : (
-            <>
-              <div className="divide-y-2 divide-foreground">
-                {currentMatches.map((match) => (
-                  <article key={`${match.lost_id}-${match.found_id}`} className="grid gap-4 p-4 sm:grid-cols-[112px_minmax(0,1fr)_112px] sm:items-center">
-                    <div className="aspect-square overflow-hidden rounded-lg border-2 border-foreground bg-muted">
-                      {match.photo ? <img src={match.photo} alt={shortText(match.found?.description, 40, "Found item")} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center"><ImageOff className="h-6 w-6 text-muted-foreground" /></div>}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Lost description</p>
-                      <p className="mt-0.5 font-semibold">{match.lost?.description || "Description not provided"}</p>
-                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">Found item</p>
-                      <p className="mt-0.5">{match.found?.description || "Description not provided"}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{match.found?.found_location} · {match.found?.kept_with === "office" ? "At office" : "With finder"}</p>
-                    </div>
-                    <div className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-end">
-                      <Badge className="border-2 border-foreground bg-primary text-primary-foreground">{Math.round(Number(match.score) * 100)}% match</Badge>
-                      <span className="text-xs capitalize text-muted-foreground">Lost: {match.lost?.status ?? "—"}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              {(currentMatches.length === PAGE_SIZE || matchPage > 0) && (
-                <div className="flex flex-wrap items-center justify-center gap-3 border-t-2 border-foreground p-4">
-                  <Button variant="outline" className="border-2 border-foreground" disabled={matchPage === 0} onClick={() => setMatchPage((page) => page - 1)}>
-                    <ArrowLeft /> Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">Page {matchPage + 1}</span>
-                  <Button variant="outline" className="border-2 border-foreground" disabled={currentMatches.length < PAGE_SIZE} onClick={loadMoreMatches}>
-                    Load more comparisons <ArrowDownToLine />
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        <section className="panel overflow-hidden">
-          <div className="flex items-center gap-3 border-b-2 border-foreground p-5">
-            <Building2 className="h-6 w-6" />
-            <div>
-              <h2 className="text-2xl font-bold">Items held at the office</h2>
-              <p className="text-sm text-muted-foreground">Office-held found items remain here with collection details and full-size images.</p>
-            </div>
-          </div>
-          {officeQuery.isLoading ? <LoadingRows /> : officeQuery.error ? (
-            <ErrorBanner message="Office-held found items could not be loaded." />
-          ) : currentOfficeItems.length === 0 && officePage === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">No found items are currently held by the office.</div>
-          ) : (
-            <>
-              <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
-                {currentOfficeItems.map((item) => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    onClick={() => setSelectedOfficeItem(item)}
-                    className="group overflow-hidden rounded-xl border-2 border-foreground bg-card text-left shadow-brutal transition-transform hover:-translate-y-0.5"
-                  >
-                    <div className="relative aspect-[4/3] bg-muted">
-                      {item.photo ? <img src={item.photo} alt={shortText(item.description, 45, "Found item")} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" /> : <div className="flex h-full items-center justify-center"><ImageOff className="h-8 w-8 text-muted-foreground" /></div>}
-                      <Badge className="absolute left-3 top-3 border-2 border-foreground bg-success text-success-foreground">At Lost &amp; Found Office</Badge>
-                    </div>
-                    <div className="space-y-1 p-4">
-                      <h3 className="font-bold">{shortText(item.description, 72, "Found item — no description")}</h3>
-                      <p className="text-sm text-muted-foreground">{item.found_location}</p>
-                      <p className="text-xs capitalize text-muted-foreground">{item.status} · {new Date(item.date_found).toLocaleDateString()}</p>
-                      <span className="mt-2 inline-flex text-sm font-semibold underline underline-offset-2">View item details</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              {(currentOfficeItems.length === PAGE_SIZE || officePage > 0) && (
-                <div className="flex flex-wrap items-center justify-center gap-3 border-t-2 border-foreground p-4">
-                  <Button variant="outline" className="border-2 border-foreground" disabled={officePage === 0} onClick={() => setOfficePage((page) => page - 1)}>
-                    <ArrowLeft /> Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">Page {officePage + 1}</span>
-                  <Button variant="outline" className="border-2 border-foreground" disabled={currentOfficeItems.length < PAGE_SIZE} onClick={loadMoreOffice}>
-                    Load more office items <ArrowDownToLine />
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        <section className="panel overflow-hidden">
-          <div className="flex items-center gap-3 border-b-2 border-foreground p-5">
-            <CalendarDays className="h-6 w-6" />
-            <div>
-              <h2 className="text-2xl font-bold">Recent reports</h2>
-              <p className="text-sm text-muted-foreground">Latest lost and found submissions from across campus.</p>
-            </div>
-          </div>
-          {recentReportsQuery.isLoading ? <LoadingRows /> : recentReportsQuery.error ? (
-            <ErrorBanner message="Recent reports could not be loaded." />
-          ) : (
-            <div className="divide-y-2 divide-foreground">
-              {(recentReportsQuery.data ?? []).map((report) => (
-                <div key={`${report.kind}-${report.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Badge variant="outline" className={`border-2 border-foreground ${report.kind === "Lost" ? "bg-accent" : "bg-success"}`}>{report.kind}</Badge>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold">{shortText(report.description, 100, "Item report")}</p>
-                      <p className="text-sm text-muted-foreground">{report.location} · {new Date(report.created_at).toLocaleString()}{report.kept_with === "office" ? " · Held at office" : ""}</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="border-2 border-foreground capitalize">{report.status}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {isSuperadmin && (
-          <section className="grid gap-5 lg:grid-cols-2">
-            <div className="panel p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <Users className="h-6 w-6" />
-                <div>
-                  <h2 className="text-2xl font-bold">Account roles</h2>
-                  <p className="text-sm text-muted-foreground">Only the verified superadmin can grant or revoke admin access.</p>
-                </div>
-              </div>
-              {usersQuery.error && <ErrorBanner message="User roles are unavailable. Check the superadmin RPC migration." />}
-              {usersQuery.isLoading ? <LoadingRows /> : (
-                <div className="max-h-[28rem] divide-y-2 divide-foreground overflow-y-auto">
-                  {(usersQuery.data ?? []).map((user) => (
-                    <div key={user.user_id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold">{user.full_name || "Campus user"}</p>
-                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                      </div>
-                      {user.role === "superadmin" ? (
-                        <Badge className="border-2 border-foreground bg-primary text-primary-foreground">Superadmin</Badge>
-                      ) : (
-                        <select
-                          aria-label={`Role for ${user.email}`}
-                          value={user.role}
-                          disabled={setRole.isPending}
-                          onChange={(event) => setRole.mutate({ id: user.user_id, role: event.target.value as "user" | "admin" })}
-                          className="rounded-md border-2 border-foreground bg-card px-2 py-1.5 text-sm font-semibold"
-                        >
-                          <option value="user">User</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="panel p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <SlidersHorizontal className="h-6 w-6" />
-                <div>
-                  <h2 className="text-2xl font-bold">Match threshold</h2>
-                  <p className="text-sm text-muted-foreground">Adjust the minimum cosine similarity used when generating future matches.</p>
-                </div>
-              </div>
-              {thresholdQuery.error && <ErrorBanner message="Matching threshold is unavailable. Check matching_settings permissions." />}
-              <form
-                className="space-y-3"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  saveThreshold.mutate();
-                }}
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-6 px-4 py-6 lg:flex-row lg:px-6">
+        <aside className="w-full shrink-0 lg:sticky lg:top-24 lg:h-[calc(100vh-7rem)] lg:w-64">
+          <nav aria-label="Admin sections" className="panel flex gap-1 overflow-x-auto p-2 lg:h-full lg:flex-col lg:overflow-y-auto">
+            {sections.map(({ id, label, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                aria-current={section === id ? "page" : undefined}
+                onClick={() => setSection(id)}
+                className={`flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors lg:w-full ${section === id ? "bg-foreground text-background" : "hover:bg-muted"}`}
               >
-                <Label htmlFor="match-threshold">Cosine threshold (0–1)</Label>
-                <Input
-                  id="match-threshold"
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  className="border-2"
-                  value={threshold === "" ? thresholdValue ?? "" : threshold}
-                  onChange={(event) => setThreshold(event.target.value)}
-                  disabled={thresholdQuery.isLoading || saveThreshold.isPending}
-                />
-                <Button type="submit" variant="hero" disabled={saveThreshold.isPending || thresholdQuery.isLoading}>
-                  {saveThreshold.isPending ? <Loader2 className="animate-spin" /> : <Check />} Save threshold
-                </Button>
-              </form>
-              <p className="mt-4 text-xs text-muted-foreground">Changing the threshold affects matching runs after this update; existing score rows are not retroactively regenerated.</p>
+                <Icon className="h-4 w-4 shrink-0" />
+                <span>{label}</span>
+              </button>
+            ))}
+            <div className="mt-auto hidden border-t-2 border-foreground px-3 pt-4 text-xs text-muted-foreground lg:block">
+              Signed in as <span className="font-semibold text-foreground">{isSuperadmin ? "Superadmin" : "Admin"}</span>
             </div>
-          </section>
-        )}
-      </main>
+          </nav>
+        </aside>
 
-      <Dialog open={selectedOfficeItem !== null} onOpenChange={(open) => { if (!open) setSelectedOfficeItem(null); }}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto border-2 border-foreground sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{shortText(selectedOfficeItem?.description, 100, "Found item details")}</DialogTitle>
-            <DialogDescription>Held at the campus Lost &amp; Found Office</DialogDescription>
-          </DialogHeader>
-          {selectedOfficeItem?.photo && (
-            <a href={selectedOfficeItem.photo} target="_blank" rel="noreferrer" aria-label="Open full-size found item image">
-              <img src={selectedOfficeItem.photo} alt={shortText(selectedOfficeItem.description, 80, "Found item")} className="max-h-[55vh] w-full rounded-lg border-2 border-foreground bg-muted object-contain" />
-            </a>
+        <main className="min-w-0 flex-1 space-y-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border-2 border-foreground bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wide">
+                <ShieldCheck className="h-4 w-4" /> {isSuperadmin ? "Superadmin" : "Admin"}
+              </div>
+              <h1 className="text-3xl font-bold sm:text-4xl">{sections.find((item) => item.id === section)?.label}</h1>
+              <p className="mt-1 text-sm text-muted-foreground">{sectionDescription(section)}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {section === "dashboard" && (
+                <label className="flex items-center gap-2 text-sm font-semibold">
+                  <CalendarDays className="h-4 w-4" />
+                  <select
+                    value={dateRange}
+                    onChange={(event) => setDateRange(event.target.value as DashboardRange)}
+                    aria-label="Analytics date range"
+                    className="rounded-md border-2 border-foreground bg-card px-3 py-2"
+                  >
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="90d">Last 90 days</option>
+                    <option value="all">All time</option>
+                  </select>
+                </label>
+              )}
+              <Button
+                variant="outline"
+                className="border-2 border-foreground"
+                onClick={() => queryClient.invalidateQueries({ predicate: (query) => String(query.queryKey[0]).startsWith("admin-") })}
+              >
+                <RefreshCw className="h-4 w-4" /> Refresh
+              </Button>
+            </div>
+          </div>
+
+          {section === "dashboard" && (
+            <DashboardSection
+              stats={stats}
+              statsError={statsQuery.error}
+              analytics={analytics}
+              analyticsLoading={reportAnalyticsQuery.isLoading}
+              analyticsError={reportAnalyticsQuery.error}
+              dateRange={dateRange}
+              returnedRate={returnedRate}
+            />
           )}
-          <dl className="grid gap-3 rounded-lg border-2 border-foreground bg-muted/40 p-4 sm:grid-cols-2">
-            <Detail label="Description" value={selectedOfficeItem?.description || "Not provided"} />
-            <Detail label="Found at" value={selectedOfficeItem?.found_location || "Not provided"} />
-            <Detail label="Date found" value={selectedOfficeItem ? new Date(selectedOfficeItem.date_found).toLocaleString() : "—"} />
-            <Detail label="Status" value={selectedOfficeItem?.status || "—"} />
-          </dl>
+
+          {section === "disputes" && <EmptySection title="No disputes yet" message="Dispute management will be available here when disputes are added to the app." />}
+
+          {section === "users" && (
+            <UsersSection
+              users={usersQuery.data ?? []}
+              isLoading={usersQuery.isLoading}
+              error={usersQuery.error}
+              isSuperadmin={isSuperadmin}
+              currentUserId={me?.id}
+              onChangeRole={setPendingRoleChange}
+            />
+          )}
+
+          {section === "reports" && (
+            <ReportsSection
+              lostItems={lostItemsQuery.data ?? []}
+              foundItems={foundItemsQuery.data ?? []}
+              lostLoading={lostItemsQuery.isLoading}
+              foundLoading={foundItemsQuery.isLoading}
+              lostError={lostItemsQuery.error}
+              foundError={foundItemsQuery.error}
+              lostPage={lostPage}
+              foundPage={foundPage}
+              setLostPage={setLostPage}
+              setFoundPage={setFoundPage}
+              onImage={setImagePreview}
+            />
+          )}
+
+          {section === "matching" && (
+            <MatchingSection
+              matches={matchesQuery.data ?? []}
+              isLoading={matchesQuery.isLoading}
+              error={matchesQuery.error}
+              page={matchPage}
+              setPage={setMatchPage}
+              onImage={setImagePreview}
+            />
+          )}
+
+          {section === "office" && (
+            <OfficeSection
+              items={officeQuery.data ?? []}
+              isLoading={officeQuery.isLoading}
+              error={officeQuery.error}
+              page={officePage}
+              setPage={setOfficePage}
+              onImage={setImagePreview}
+            />
+          )}
+
+          {section === "audit" && <EmptySection title="Audit log is empty" message="Administrative activity will appear here when audit logging is added." />}
+
+          {section === "settings" && (
+            <SettingsSection
+              isSuperadmin={isSuperadmin}
+              threshold={threshold}
+              setThreshold={setThreshold}
+              currentThreshold={thresholdQuery.data}
+              isLoading={thresholdQuery.isLoading}
+              error={thresholdQuery.error}
+              isSaving={saveThreshold.isPending}
+              onSave={() => saveThreshold.mutate()}
+            />
+          )}
+        </main>
+      </div>
+
+      <AlertDialog open={pendingRoleChange !== null} onOpenChange={(open) => { if (!open && !setRole.isPending) setPendingRoleChange(null); }}>
+        <AlertDialogContent className="border-2 border-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm role change</AlertDialogTitle>
+            <AlertDialogDescription>
+              Change {pendingRoleChange?.user.full_name || pendingRoleChange?.user.email} from{" "}
+              <strong>{pendingRoleChange?.user.role}</strong> to <strong>{pendingRoleChange?.role}</strong>?
+              This changes their access to the admin dashboard.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={setRole.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={setRole.isPending} onClick={(event) => {
+              event.preventDefault();
+              if (pendingRoleChange) setRole.mutate(pendingRoleChange);
+            }}>
+              {setRole.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm role change
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={imagePreview !== null} onOpenChange={(open) => { if (!open) setImagePreview(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto border-2 border-foreground sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{imagePreview?.title}</DialogTitle>
+            <DialogDescription>Item photo</DialogDescription>
+          </DialogHeader>
+          {imagePreview && <img src={imagePreview.url} alt={imagePreview.title} className="max-h-[72vh] w-full rounded-lg border-2 border-foreground bg-muted object-contain" />}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function StatCard({ label, value, hint }: { label: string; value?: number; hint: string }) {
+function sectionDescription(section: AdminSection) {
+  switch (section) {
+    case "dashboard": return "Live lost-and-found activity and reports.";
+    case "disputes": return "Review and resolve reported disputes.";
+    case "users": return "Accounts, item totals, returns, and access roles.";
+    case "reports": return "Browse lost and found submissions.";
+    case "matching": return "Review every generated lost-and-found score comparison.";
+    case "office": return "Items currently kept by the Lost & Found office.";
+    case "audit": return "Administrative activity history.";
+    case "settings": return "Configure matching behavior.";
+  }
+}
+
+function DashboardSection({
+  stats,
+  statsError,
+  analytics,
+  analyticsLoading,
+  analyticsError,
+  dateRange,
+  returnedRate,
+}: {
+  stats?: { lost: number; found: number; open: number; returned: number; office: number; matches: number };
+  statsError: unknown;
+  analytics?: { byType: { type: string; count: number }[]; byLocation: { location: string; count: number }[] };
+  analyticsLoading: boolean;
+  analyticsError: unknown;
+  dateRange: DashboardRange;
+  returnedRate: number;
+}) {
   return (
-    <div className="panel p-5">
+    <div className="space-y-6">
+      {statsError && <ErrorBanner message="Dashboard statistics could not be loaded. Verify the admin RLS migration was applied." />}
+      <section aria-label="Dashboard statistics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Lost reports" value={stats?.lost} hint={rangeLabel(dateRange)} />
+        <StatCard label="Found reports" value={stats?.found} hint={rangeLabel(dateRange)} />
+        <StatCard label="Open reports" value={stats?.open} hint={rangeLabel(dateRange)} />
+        <StatCard label="Returned reports" value={stats?.returned} hint={`${returnedRate}% of reports`} />
+        <StatCard label="Return rate" value={`${returnedRate}%`} hint="Returned / total reports" />
+        <StatCard label="Held at office" value={stats?.office} hint="Items with office" />
+        <StatCard label="AI comparisons" value={stats?.matches} hint="All score rows" />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <div className="panel p-5">
+          <h2 className="text-xl font-bold">Reports by category</h2>
+          <p className="mb-3 text-sm text-muted-foreground">Lost and found reports in {rangeLabel(dateRange).toLowerCase()}.</p>
+          {analyticsError ? <ErrorBanner message="Report analytics could not be loaded." /> : analyticsLoading ? <LoadingRows /> : analytics?.byType.length ? (
+            <ChartContainer config={REPORT_TYPE_CHART} className="h-64 w-full aspect-auto">
+              <BarChart data={analytics.byType} accessibilityLayer>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="type" tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <Bar dataKey="count" name="Reports" fill="var(--color-count)" radius={4} />
+              </BarChart>
+            </ChartContainer>
+          ) : <p className="py-12 text-center text-sm text-muted-foreground">No reports in this date range.</p>}
+        </div>
+        <div className="panel p-5">
+          <h2 className="text-xl font-bold">Reports by location</h2>
+          <p className="mb-3 text-sm text-muted-foreground">Top campus locations in {rangeLabel(dateRange).toLowerCase()}.</p>
+          {analyticsError ? <ErrorBanner message="Report analytics could not be loaded." /> : analyticsLoading ? <LoadingRows /> : analytics?.byLocation.length ? (
+            <ChartContainer config={LOCATION_CHART} className="h-64 w-full aspect-auto">
+              <BarChart data={analytics.byLocation} accessibilityLayer>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="location" tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" height={55} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <Bar dataKey="count" name="Reports" fill="var(--color-count)" radius={4} />
+              </BarChart>
+            </ChartContainer>
+          ) : <p className="py-12 text-center text-sm text-muted-foreground">No reports in this date range.</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function UsersSection({
+  users,
+  isLoading,
+  error,
+  isSuperadmin,
+  currentUserId,
+  onChangeRole,
+}: {
+  users: AdminUser[];
+  isLoading: boolean;
+  error: unknown;
+  isSuperadmin: boolean;
+  currentUserId?: string;
+  onChangeRole: (change: NonNullable<PendingRoleChange>) => void;
+}) {
+  return (
+    <section className="panel overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-foreground p-5">
+        <div>
+          <h2 className="text-xl font-bold">Campus users</h2>
+          <p className="text-sm text-muted-foreground">Lost/found totals and reports marked returned for each account.</p>
+        </div>
+        <Badge variant="outline" className="border-2 border-foreground">{users.length} users</Badge>
+      </div>
+      {error ? <ErrorBanner message="User list could not be loaded. Apply the latest admin dashboard SQL update." /> : isLoading ? <LoadingRows /> : users.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground">No user accounts found.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[850px] text-left text-sm">
+            <thead className="bg-muted/60 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="p-3">User</th>
+                <th className="p-3">Lost</th>
+                <th className="p-3">Lost returned</th>
+                <th className="p-3">Found</th>
+                <th className="p-3">Found returned</th>
+                <th className="p-3">Role</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y-2 divide-foreground/10">
+              {users.map((user) => (
+                <tr key={user.user_id}>
+                  <td className="p-3">
+                    <p className="font-semibold">{user.full_name || "Campus user"}</p>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                  </td>
+                  <td className="p-3">{Number(user.lost_count)}</td>
+                  <td className="p-3">{Number(user.lost_returned_count)}</td>
+                  <td className="p-3">{Number(user.found_count)}</td>
+                  <td className="p-3">{Number(user.found_returned_count)}</td>
+                  <td className="p-3">
+                    {isSuperadmin && user.role !== "superadmin" && user.user_id !== currentUserId ? (
+                      <select
+                        aria-label={`Change role for ${user.email}`}
+                        value={user.role}
+                        onChange={(event) => {
+                          const role = event.target.value as "user" | "admin";
+                          if (role !== user.role) onChangeRole({ user, role });
+                        }}
+                        className="rounded-md border-2 border-foreground bg-card px-2 py-1.5 font-semibold"
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    ) : (
+                      <Badge variant="outline" className="border-2 border-foreground capitalize">{user.role}</Badge>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportsSection({
+  lostItems,
+  foundItems,
+  lostLoading,
+  foundLoading,
+  lostError,
+  foundError,
+  lostPage,
+  foundPage,
+  setLostPage,
+  setFoundPage,
+  onImage,
+}: {
+  lostItems: AdminItem[];
+  foundItems: AdminItem[];
+  lostLoading: boolean;
+  foundLoading: boolean;
+  lostError: unknown;
+  foundError: unknown;
+  lostPage: number;
+  foundPage: number;
+  setLostPage: (page: number) => void;
+  setFoundPage: (page: number) => void;
+  onImage: (preview: NonNullable<ImagePreview>) => void;
+}) {
+  return (
+    <div className="grid items-start gap-5 xl:grid-cols-2">
+      <ReportList title="Lost items" items={lostItems} isLoading={lostLoading} error={lostError} page={lostPage} setPage={setLostPage} onImage={onImage} />
+      <ReportList title="Found items" items={foundItems} isLoading={foundLoading} error={foundError} page={foundPage} setPage={setFoundPage} onImage={onImage} />
+    </div>
+  );
+}
+
+function ReportList({
+  title,
+  items,
+  isLoading,
+  error,
+  page,
+  setPage,
+  onImage,
+}: {
+  title: string;
+  items: AdminItem[];
+  isLoading: boolean;
+  error: unknown;
+  page: number;
+  setPage: (page: number) => void;
+  onImage: (preview: NonNullable<ImagePreview>) => void;
+}) {
+  return (
+    <section className="panel overflow-hidden">
+      <div className="border-b-2 border-foreground p-4">
+        <h2 className="text-xl font-bold">{title}</h2>
+      </div>
+      {error ? <ErrorBanner message={`${title} could not be loaded.`} /> : isLoading ? <LoadingRows /> : items.length === 0 && page === 0 ? (
+        <p className="p-6 text-center text-sm text-muted-foreground">No {title.toLowerCase()} found.</p>
+      ) : (
+        <>
+          <div className="divide-y-2 divide-foreground/10">
+            {items.map((item) => <ReportRow key={item.id} item={item} onImage={onImage} />)}
+          </div>
+          <PageControls page={page} canNext={items.length === PAGE_SIZE} setPage={setPage} noun={title.toLowerCase()} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function ReportRow({ item, onImage }: { item: AdminItem; onImage: (preview: NonNullable<ImagePreview>) => void }) {
+  return (
+    <article className="flex gap-3 p-3">
+      <ItemThumbnail item={item} onImage={onImage} />
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 font-semibold">{item.description || "Description not provided"}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{item.location || "Location not provided"}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{formatDate(item.date)} · {item.status}{item.kept_with ? ` · ${item.kept_with}` : ""}</p>
+      </div>
+    </article>
+  );
+}
+
+function MatchingSection({
+  matches,
+  isLoading,
+  error,
+  page,
+  setPage,
+  onImage,
+}: {
+  matches: AdminMatch[];
+  isLoading: boolean;
+  error: unknown;
+  page: number;
+  setPage: (page: number) => void;
+  onImage: (preview: NonNullable<ImagePreview>) => void;
+}) {
+  return (
+    <section className="panel overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-foreground p-5">
+        <div>
+          <h2 className="text-xl font-bold">Score comparisons</h2>
+          <p className="text-sm text-muted-foreground">Found image and optional lost image on the left; lost description and optional found description on the right.</p>
+        </div>
+      </div>
+      {error ? <ErrorBanner message="Score comparisons could not be loaded. Check the admin RLS policies." /> : isLoading ? <LoadingRows /> : matches.length === 0 && page === 0 ? (
+        <p className="p-8 text-center text-muted-foreground">There are no score_comparison rows yet.</p>
+      ) : (
+        <>
+          <div className="divide-y-2 divide-foreground/10">
+            {matches.map((match) => (
+              <article key={`${match.lost_id}-${match.found_id}`} className="grid gap-4 p-4 lg:grid-cols-[112px_minmax(0,1fr)_112px_minmax(0,1fr)] lg:items-center">
+                <MatchImage url={match.foundPhoto} label={shortText(match.found?.description, 40, "Found item")} onImage={onImage} />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Lost description</p>
+                  <p className="mt-1 whitespace-pre-wrap font-semibold">{match.lost?.description || "Description not provided"}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Lost item · {match.lost?.status ?? "—"}</p>
+                </div>
+                <div className="flex justify-start lg:justify-center">
+                  <Badge className="border-2 border-foreground bg-primary text-primary-foreground">{Math.round(Number(match.score) * 100)}% similarity</Badge>
+                </div>
+                <div className="flex min-w-0 items-start gap-3">
+                  {match.lostPhoto && <MatchImage url={match.lostPhoto} label={shortText(match.lost?.description, 40, "Lost item")} onImage={onImage} />}
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Found description (optional)</p>
+                    <p className="mt-1 whitespace-pre-wrap">{match.found?.description || "No found-side description"}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">{match.found?.found_location || "Location not provided"} · {match.found?.kept_with === "office" ? "At office" : "With finder"}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          <PageControls page={page} canNext={matches.length === PAGE_SIZE} setPage={setPage} noun="comparisons" />
+        </>
+      )}
+    </section>
+  );
+}
+
+function OfficeSection({
+  items,
+  isLoading,
+  error,
+  page,
+  setPage,
+  onImage,
+}: {
+  items: AdminItem[];
+  isLoading: boolean;
+  error: unknown;
+  page: number;
+  setPage: (page: number) => void;
+  onImage: (preview: NonNullable<ImagePreview>) => void;
+}) {
+  return (
+    <section className="panel overflow-hidden">
+      <div className="border-b-2 border-foreground p-5">
+        <h2 className="text-xl font-bold">Items held at the office</h2>
+        <p className="text-sm text-muted-foreground">All found items marked as kept with the office.</p>
+      </div>
+      {error ? <ErrorBanner message="Office-held items could not be loaded." /> : isLoading ? <LoadingRows /> : items.length === 0 && page === 0 ? (
+        <p className="p-8 text-center text-muted-foreground">No items are currently kept with the office.</p>
+      ) : (
+        <>
+          <div className="divide-y-2 divide-foreground/10">
+            {items.map((item) => (
+              <article key={item.id} className="flex flex-wrap items-center gap-4 p-4">
+                <ItemThumbnail item={item} onImage={onImage} />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold">{item.description || "Found item — no description"}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.location || "Location not provided"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Found {formatDate(item.date)} · {item.status}</p>
+                </div>
+                <Badge variant="outline" className="border-2 border-foreground">Office-held</Badge>
+              </article>
+            ))}
+          </div>
+          <PageControls page={page} canNext={items.length === PAGE_SIZE} setPage={setPage} noun="office items" />
+        </>
+      )}
+    </section>
+  );
+}
+
+function SettingsSection({
+  isSuperadmin,
+  threshold,
+  setThreshold,
+  currentThreshold,
+  isLoading,
+  error,
+  isSaving,
+  onSave,
+}: {
+  isSuperadmin: boolean;
+  threshold: string;
+  setThreshold: (value: string) => void;
+  currentThreshold?: number;
+  isLoading: boolean;
+  error: unknown;
+  isSaving: boolean;
+  onSave: () => void;
+}) {
+  if (!isSuperadmin) return <EmptySection title="No settings available" message="Only the superadmin can change matching settings." />;
+  return (
+    <section className="panel max-w-3xl p-5">
+      <div className="mb-5 flex items-center gap-3">
+        <SlidersHorizontal className="h-6 w-6" />
+        <div>
+          <h2 className="text-xl font-bold">Matching threshold</h2>
+          <p className="text-sm text-muted-foreground">Set the minimum cosine similarity for future matches.</p>
+        </div>
+      </div>
+      {error && <ErrorBanner message="Matching threshold is unavailable. Check matching_settings permissions." />}
+      <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
+        <Label htmlFor="match-threshold">Threshold: {threshold || currentThreshold?.toFixed(2) || "—"}</Label>
+        <input
+          id="match-threshold"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={threshold === "" ? currentThreshold ?? 0 : threshold}
+          onChange={(event) => setThreshold(event.target.value)}
+          disabled={isLoading || isSaving}
+          className="w-full accent-primary"
+        />
+        <Input
+          type="number"
+          min="0"
+          max="1"
+          step="0.01"
+          aria-label="Threshold value"
+          className="max-w-40 border-2"
+          value={threshold === "" ? currentThreshold ?? "" : threshold}
+          onChange={(event) => setThreshold(event.target.value)}
+          disabled={isLoading || isSaving}
+        />
+        <Button type="submit" variant="hero" disabled={isSaving || isLoading}>
+          {isSaving ? <Loader2 className="animate-spin" /> : <Check />} Save settings
+        </Button>
+      </form>
+      <p className="mt-4 text-xs text-muted-foreground">Existing comparisons are not recalculated when the threshold changes.</p>
+    </section>
+  );
+}
+
+function ItemThumbnail({ item, onImage }: { item: AdminItem; onImage: (preview: NonNullable<ImagePreview>) => void }) {
+  if (!item.photo) {
+    return <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border-2 border-foreground bg-muted"><ImageOff className="h-6 w-6 text-muted-foreground" /></div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onImage({ url: item.photo!, title: shortText(item.description, 60, "Item photo") })}
+      className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border-2 border-foreground bg-muted"
+      aria-label={`Enlarge ${shortText(item.description, 50, "item")} photo`}
+    >
+      <img src={item.photo} alt={shortText(item.description, 50, "Item")} className="h-full w-full object-cover" />
+    </button>
+  );
+}
+
+function MatchImage({
+  url,
+  label,
+  onImage,
+}: {
+  url: string | null;
+  label: string;
+  onImage: (preview: NonNullable<ImagePreview>) => void;
+}) {
+  return url ? (
+    <button type="button" onClick={() => onImage({ url, title: label })} aria-label={`Enlarge ${label} photo`} className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border-2 border-foreground bg-muted">
+      <img src={url} alt={label} className="h-full w-full object-cover" />
+    </button>
+  ) : (
+    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border-2 border-foreground bg-muted"><ImageOff className="h-6 w-6 text-muted-foreground" /></div>
+  );
+}
+
+function PageControls({ page, canNext, setPage, noun }: { page: number; canNext: boolean; setPage: (page: number) => void; noun: string }) {
+  if (!canNext && page === 0) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 border-t-2 border-foreground p-3">
+      <Button variant="outline" className="border-2 border-foreground" disabled={page === 0} onClick={() => setPage(page - 1)}>
+        <ArrowLeft /> Previous
+      </Button>
+      <span className="text-sm text-muted-foreground">Page {page + 1}</span>
+      <Button variant="outline" className="border-2 border-foreground" disabled={!canNext} onClick={() => setPage(page + 1)}>
+        Next {noun} <ArrowDownToLine />
+      </Button>
+    </div>
+  );
+}
+
+function StatCard({ label, value, hint }: { label: string; value?: number | string; hint: string }) {
+  return (
+    <div className="panel p-4">
       <p className="text-sm font-semibold text-muted-foreground">{label}</p>
-      <p className="mt-2 text-4xl font-bold">{value === undefined ? <span className="inline-block h-9 w-14 animate-pulse rounded bg-muted" /> : value.toLocaleString()}</p>
+      <p className="mt-2 text-3xl font-bold">{value === undefined ? <span className="inline-block h-8 w-14 animate-pulse rounded bg-muted" /> : typeof value === "number" ? value.toLocaleString() : value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
     </div>
+  );
+}
+
+function EmptySection({ title, message }: { title: string; message: string }) {
+  return (
+    <section className="panel flex min-h-64 flex-col items-center justify-center p-8 text-center">
+      <MessageSquareWarning className="h-9 w-9 text-muted-foreground" />
+      <h2 className="mt-4 text-xl font-bold">{title}</h2>
+      <p className="mt-2 max-w-md text-sm text-muted-foreground">{message}</p>
+    </section>
   );
 }
 
@@ -744,11 +1106,15 @@ function ErrorBanner({ message }: { message: string }) {
 }
 
 function LoadingRows() {
-  return <div className="space-y-3 p-5" aria-label="Loading">
-    {[0, 1, 2].map((row) => <div key={row} className="h-14 animate-pulse rounded-lg border-2 border-foreground bg-muted" />)}
-  </div>;
+  return (
+    <div className="space-y-3 p-5" aria-label="Loading">
+      {[0, 1, 2].map((row) => <div key={row} className="h-14 animate-pulse rounded-lg border-2 border-foreground bg-muted" />)}
+    </div>
+  );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return <div><dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>;
+function formatDate(value: string | null | undefined) {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString();
 }
