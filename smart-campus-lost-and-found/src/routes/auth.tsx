@@ -34,6 +34,7 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [otpOpen, setOtpOpen] = useState(false);
   const [otp, setOtp] = useState("");
+  const [adminMfaOpen, setAdminMfaOpen] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -68,6 +69,27 @@ function AuthPage() {
           }
           throw error;
         }
+        const { error: bootstrapError } = await supabase.functions.invoke("admin-bootstrap");
+        if (bootstrapError) {
+          console.error("Could not check the configured superadmin account:", bootstrapError);
+          toast.error("Signed in, but admin access could not be checked. Contact your administrator.");
+        } else {
+          const { data: user } = await supabase.auth.getUser();
+          const { data: profile, error: profileError } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", user.user?.id ?? "")
+            .maybeSingle();
+          if (profileError) throw profileError;
+          if (profile?.role === "superadmin") {
+            const { data, error: mfaError } = await supabase.functions.invoke("admin-mfa", { body: { action: "send" } });
+            if (mfaError) throw mfaError;
+            if (data?.error) throw new Error(data.error);
+            setOtp("");
+            setAdminMfaOpen(true);
+            return;
+          }
+        }
         navigate({ to: "/dashboard", replace: true });
       }
     } catch (err) {
@@ -96,6 +118,27 @@ function AuthPage() {
     const { error } = await supabase.auth.resend({ type: "signup", email: email.trim() });
     if (error) toast.error(error.message);
     else toast.success("New code sent");
+  }
+
+  async function verifyAdminMfa(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-mfa", {
+        body: { action: "verify", code: otp },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (!data?.verified) throw new Error("Email verification was not confirmed.");
+      toast.success("Superadmin sign-in verified.");
+      setAdminMfaOpen(false);
+      setOtp("");
+      navigate({ to: "/dashboard", replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not verify the email code");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -162,6 +205,52 @@ function AuthPage() {
             {busy && <Loader2 className="animate-spin" />} Activate account
           </Button>
           <button type="button" onClick={resend} className="text-sm font-medium underline underline-offset-4">Resend code</button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={adminMfaOpen}
+        onOpenChange={() => {}}
+      >
+        <DialogContent className="border-2 border-foreground" onEscapeKeyDown={(event) => event.preventDefault()} onInteractOutside={(event) => event.preventDefault()}>
+          <DialogHeader>
+            <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-lg border-2 border-foreground bg-accent"><MailCheck className="h-5 w-5" /></div>
+            <DialogTitle>Verify superadmin sign-in</DialogTitle>
+            <DialogDescription>
+              Enter the 6-digit code sent to <strong>{email}</strong> to finish signing in.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={verifyAdminMfa} className="space-y-4">
+            <Input
+              id="superadmin-login-otp"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              maxLength={6}
+              pattern="[0-9]{6}"
+              value={otp}
+              onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              className="border-2 text-center text-lg tracking-[0.3em]"
+              aria-label="6-digit superadmin email code"
+            />
+            <Button type="submit" variant="hero" size="lg" className="w-full" disabled={otp.length !== 6 || busy}>
+              {busy && <Loader2 className="animate-spin" />} Verify and continue
+            </Button>
+          </form>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              const { data, error } = await supabase.functions.invoke("admin-mfa", { body: { action: "send" } });
+              if (error) toast.error(error.message);
+              else if (data?.error) toast.error(data.error);
+              else toast.success("A new verification code was sent.");
+            }}
+            className="text-sm font-medium underline underline-offset-4 disabled:opacity-50"
+          >
+            Resend code
+          </button>
         </DialogContent>
       </Dialog>
     </div>

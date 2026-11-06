@@ -51,10 +51,11 @@ default. To configure one superadmin:
    to replace an already established superadmin.
 4. Configure Supabase Auth email delivery and the **Magic Link** email template
    to include `{{ .Token }}` so the sign-in OTP is visible in the email.
-   Sign in with the configured account; the app bootstraps its superadmin role.
-   Each superadmin session must then verify an emailed one-time code before
-   opening admin data. Verification is tied to that Supabase auth session and
-   expires after four hours. Ordinary admins do not need this extra prompt.
+   Sign in with the configured account; the app bootstraps its superadmin role
+   and requires an emailed one-time code before completing sign-in. Verification
+   is tied to that Supabase auth session and expires after four hours. Opening
+   `/admin` also checks verification before showing admin data. Ordinary admins
+   do not need this extra prompt.
 
 The dashboard loads its counts and report charts from Supabase and supports
 7-day, 30-day, 90-day, and all-time ranges. It shows reports by type and
