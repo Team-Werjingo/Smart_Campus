@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Inbox, Loader2, LogOut, UserRound } from "lucide-react";
+import { ArrowLeftRight, Inbox, Loader2, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -20,14 +20,29 @@ export function useMe() {
     queryFn: async () => {
       const { data: auth } = await supabase.auth.getUser();
       if (!auth.user) return null;
-      const { data } = await supabase.from("profiles").select("full_name").eq("id", auth.user.id).maybeSingle();
-      return { id: auth.user.id, email: auth.user.email ?? "", full_name: (data?.full_name as string | undefined) ?? "" };
+      // The endpoint promotes only the exact, server-configured ADMIN_EMAIL.
+      // A failure here must not prevent ordinary accounts from using the app.
+      const { error: bootstrapError } = await supabase.functions.invoke("admin-bootstrap");
+      if (bootstrapError) console.error("Could not check the configured superadmin account:", bootstrapError);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name, role")
+        .eq("id", auth.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      return {
+        id: auth.user.id,
+        email: auth.user.email ?? "",
+        full_name: (data?.full_name as string | undefined) ?? "",
+        role: (data?.role as "user" | "admin" | "superadmin" | undefined) ?? "user",
+      };
     },
   });
 }
 
 export function AppNav({ onInbox }: { onInbox?: () => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { data: me } = useMe();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -95,6 +110,12 @@ export function AppNav({ onInbox }: { onInbox?: () => void }) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setProfileOpen(true)}><UserRound className="mr-2 h-4 w-4" /> Edit profile</DropdownMenuItem>
+              {(me?.role === "admin" || me?.role === "superadmin") && (
+                <DropdownMenuItem onClick={() => navigate({ to: "/admin" })}>
+                  {location.pathname === "/admin" ? <ArrowLeftRight className="mr-2 h-4 w-4" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                  {location.pathname === "/admin" ? "Return to user dashboard" : "Admin dashboard"}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={signOut}><LogOut className="mr-2 h-4 w-4" /> Sign out</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

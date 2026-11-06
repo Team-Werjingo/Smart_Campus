@@ -28,7 +28,69 @@ TanStack Start + Tailwind, connected to your own Supabase project.
 7. In Supabase -> Authentication -> Email Templates -> "Confirm signup", add `{{ .Token }}` so the email shows the 6-digit code.
 8. Run `npm run dev`.
 
-Each report compresses its selected image in the browser to a maximum dimension of 1600 pixels and a target of about 500 KB before uploading it to Supabase or generating a normalized CLIP image embedding. The app begins loading the CLIP resources during browser idle time so they are usually ready before a user reaches the report form. The compressed image remains suitable for item-level visual matching; extremely fine details may be less clear than in the original camera file. It then invokes `embed-item` to store the 512-dimensional vectors and calculate normalized cosine similarity across lost descriptions and found images. Pairs above the configured threshold are saved to `score_comparison`; the dashboard displays the top three scores per open lost report. Run `supabase/clip-migration.sql` once in the Supabase SQL Editor before using the browser CLIP flow. The initial threshold is `0.30`; change it in Supabase SQL Editor, for example:
+## Admin dashboard
+
+The app's admin dashboard is available at `/admin` to accounts whose database
+profile role is `admin` or `superadmin`. New accounts are assigned `user` by
+default. To configure one superadmin:
+
+1. Run `supabase/admin-dashboard.sql` in the Supabase SQL Editor **after**
+   `fixes.sql` and `clip-migration.sql`. If you already applied an earlier
+   version of the admin dashboard SQL, run the updated file again to create
+   the admin user-list RPC used by the redesigned dashboard.
+2. In Supabase project settings -> Edge Functions -> Secrets, set `ADMIN_EMAIL`
+   to the one email address that should be eligible for superadmin bootstrap.
+   This is a server-side Edge Function secret; do not add it to any `VITE_*`
+   variable or browser bundle. Supabase supplies the function service-role
+   credential at runtime; do not copy it into the app.
+3. Deploy the two functions:
+   ```sh
+   supabase functions deploy admin-bootstrap --no-verify-jwt
+   supabase functions deploy admin-mfa --no-verify-jwt
+   ```
+   Each function validates the caller's Supabase access token itself. The
+   bootstrap function promotes only the exact configured email, and refuses
+   to replace an already established superadmin.
+4. Configure Supabase Auth email delivery and the **Magic Link** email template
+   to include `{{ .Token }}` so the sign-in OTP is visible in the email.
+   Sign in with the configured account; the app bootstraps its superadmin role
+   and requires an emailed one-time code before completing sign-in. Verification
+   is tied to that Supabase auth session and expires after four hours. Opening
+   `/admin` also checks verification before showing admin data. Ordinary admins
+   do not need this extra prompt.
+
+The dashboard has sidebar sections for the overview, disputes, users, reports,
+matching performance, office-held items, audit log, and settings. Disputes and
+audit log are currently empty placeholders. The overview loads counts and
+report charts from Supabase and supports 7-day, 30-day, 90-day, and all-time
+ranges. The reports section shows lost and found items side by side; matching
+performance shows paginated `score_comparison` rows with found and optional
+lost photos, lost descriptions, optional found descriptions, and similarity
+scores. The office-held section lists all found items marked `kept_with =
+'office'`. The superadmin can change roles after confirmation and adjust the
+matching threshold in Settings; admins can view user activity but cannot
+change roles or matching settings. The users view counts reports by their
+owner and treats `status = 'returned'` as a returned report. The current report
+schema does not include an item-category field, so the category-style overview
+chart is represented by Lost/Found report type rather than inferred categories.
+
+The SQL migration defaults every profile to `user`, blocks direct client role
+updates, and gates admin report/match reads with RLS. Only a verified
+superadmin can use the database RPCs to change roles or the match threshold;
+the one configured server-side bootstrap is the only initial superadmin path.
+Threshold changes apply to future matching runs; existing comparisons are not
+recalculated automatically. Review the migration against any custom policies
+in your project before applying it.
+
+Superadmin sign-in uses the account's Supabase Auth credentials. `ADMIN_EMAIL`
+is only an Edge Function secret used to authorize the one superadmin account;
+do not place the account password or service-role key in a `VITE_*` variable or
+browser code. Set or rotate the password through Supabase Auth.
+
+Each report compresses its selected image in the browser to a maximum dimension of 1600 pixels and a target of about 500 KB before uploading it to Supabase or generating a normalized CLIP image embedding. The app begins loading the CLIP resources during browser idle time so they are usually ready before a user reaches the report form. The compressed image remains suitable for item-level visual matching; extremely fine details may be less clear than in the original camera file. It then invokes `embed-item` to store the 512-dimensional vectors and calculate normalized cosine similarity across lost descriptions and found images. Pairs above the configured threshold are saved to `score_comparison`; the user dashboard displays the top three scores per open lost report, while the admin dashboard can browse every comparison row. Run `supabase/clip-migration.sql` once in the Supabase SQL Editor before using the browser CLIP flow. The initial threshold is `0.30`. Once the admin migration is applied, use the
+superadmin dashboard to adjust it (application users cannot update this table
+directly). A database owner can still set it manually in SQL Editor during
+initial setup:
 
 ```sql
 update matching_settings
