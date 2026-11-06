@@ -31,6 +31,10 @@ function loadResources() {
   return resourcesPromise;
 }
 
+export function preloadClip() {
+  return loadResources();
+}
+
 function normalize(values: ArrayLike<number>) {
   let magnitude = 0;
   for (let index = 0; index < values.length; index += 1) {
