@@ -1,4 +1,0 @@
-fastapi==0.115.12
-Pillow==11.1.0
-transformers==4.51.3
-uvicorn[standard]==0.34.0
