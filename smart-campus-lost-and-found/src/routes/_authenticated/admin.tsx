@@ -464,7 +464,7 @@ function AdminDashboard() {
                 key={id}
                 aria-current={section === id ? "page" : undefined}
                 onClick={() => setSection(id)}
-                className={`flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors lg:w-full ${section === id ? "bg-foreground text-background" : "hover:bg-muted"}`}
+                className={`flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors lg:w-full ${section === id ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 <span>{label}</span>

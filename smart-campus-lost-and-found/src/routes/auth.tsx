@@ -146,13 +146,18 @@ function AuthPage() {
       <header className="mx-auto w-full max-w-6xl px-5 py-5"><Logo /></header>
       <main className="flex flex-1 items-center justify-center px-5 pb-16">
         <div className="panel w-full max-w-md p-7">
+          <img
+            src="/iba-logo.png"
+            alt="Institute of Business Administration"
+            className="mx-auto mb-5 h-auto w-full max-w-[240px] object-contain"
+          />
           <div className="mb-6 grid grid-cols-2 gap-1 rounded-lg border-2 border-foreground p-1">
             {(["signin", "signup"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
-                className={`rounded-md py-2 text-sm font-semibold transition-colors ${mode === m ? "bg-foreground text-background" : "hover:bg-muted"}`}
+                className={`rounded-md py-2 text-sm font-semibold transition-colors ${mode === m ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
               >
                 {m === "signin" ? "Sign in" : "Create account"}
               </button>

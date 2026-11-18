@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-display: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: Georgia, "Times New Roman", ui-serif, serif;
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -53,43 +53,43 @@
   --shadow-brutal-lg: 6px 6px 0 0 color-mix(in oklab, var(--foreground) 78%, transparent);
 }
 
-/* Refined purple + mint + cream: professional campus signage */
+/* IBA-inspired academic red and white theme */
 :root {
-  --radius: 0.75rem;
-  --background: #faf9fd;
-  --foreground: #2d2345;
-  --card: #fffdf7;
-  --card-foreground: #2d2345;
-  --popover: #fffdf7;
-  --popover-foreground: #2d2345;
-  --primary: #7650d8;
-  --primary-foreground: #fffdf7;
-  --secondary: #eee8fa;
-  --secondary-foreground: #4b3b70;
-  --muted: #f4f1f8;
-  --muted-foreground: #756d87;
-  --accent: #e9ddff;
-  --accent-foreground: #4b3b70;
-  --success: #dcefe6;
-  --success-foreground: #315c4a;
-  --destructive: #c94d6c;
-  --destructive-foreground: #fffdf7;
-  --border: #49395f;
-  --input: #49395f;
-  --ring: #7046d9;
-  --chart-1: #7046d9;
-  --chart-2: #78b99c;
-  --chart-3: #b5a0ed;
-  --chart-4: #d9c98c;
-  --chart-5: #c94d6c;
-  --sidebar: #fffdf7;
-  --sidebar-foreground: #2d2345;
-  --sidebar-primary: #7650d8;
-  --sidebar-primary-foreground: #fffdf7;
-  --sidebar-accent: #e9ddff;
-  --sidebar-accent-foreground: #4b3b70;
-  --sidebar-border: #49395f;
-  --sidebar-ring: #7650d8;
+  --radius: 0.5rem;
+  --background: #ffffff;
+  --foreground: #2a2021;
+  --card: #ffffff;
+  --card-foreground: #2a2021;
+  --popover: #ffffff;
+  --popover-foreground: #2a2021;
+  --primary: #9b1b30;
+  --primary-foreground: #ffffff;
+  --secondary: #f7eeee;
+  --secondary-foreground: #741425;
+  --muted: #f8f5f5;
+  --muted-foreground: #735f62;
+  --accent: #f2dfe2;
+  --accent-foreground: #741425;
+  --success: #f2dfe2;
+  --success-foreground: #741425;
+  --destructive: #741425;
+  --destructive-foreground: #ffffff;
+  --border: #741425;
+  --input: #d6bdc1;
+  --ring: #9b1b30;
+  --chart-1: #9b1b30;
+  --chart-2: #741425;
+  --chart-3: #c75a6b;
+  --chart-4: #dca7af;
+  --chart-5: #57101b;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #2a2021;
+  --sidebar-primary: #9b1b30;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f2dfe2;
+  --sidebar-accent-foreground: #741425;
+  --sidebar-border: #741425;
+  --sidebar-ring: #9b1b30;
 }
 
 @layer base {
