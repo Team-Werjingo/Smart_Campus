@@ -11,3 +11,13 @@ export function isCampusEmail(email: string) {
 
 // Max matches shown per lost item on the dashboard.
 export const MATCHES_PER_ITEM = 3;
+
+export const CAMPUS_LOCATIONS = [
+  "Tabba Academic Block",
+  "Aman Building",
+  "Adamjee Academic Block",
+  "Fauji Foundation Building",
+  "Alumni Student Center",
+  "Cricket Ground",
+  "Football Ground",
+] as const;

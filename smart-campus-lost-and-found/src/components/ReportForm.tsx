@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { IMAGE_BUCKET, triggerMatching } from "@/lib/items";
 import { imageEmbedding, textEmbedding } from "@/lib/clip";
 import { compressImage, MAX_COMPRESSED_IMAGE_BYTES } from "@/lib/image-compression";
+import { CAMPUS_LOCATIONS } from "@/lib/campus";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -198,7 +199,18 @@ export function ReportForm({ kind }: { kind: Kind }) {
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="loc">{isFound ? "Where did you find it?" : "Where did you lose it?"}</Label>
-              <Input id="loc" required maxLength={300} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Library, 2nd floor" className="border-2" />
+              <select
+                id="loc"
+                required
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="h-10 w-full rounded-md border-2 border-foreground bg-background px-3 text-sm text-foreground"
+              >
+                <option value="" disabled>Select a campus location</option>
+                {CAMPUS_LOCATIONS.map((campusLocation) => (
+                  <option key={campusLocation} value={campusLocation}>{campusLocation}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="when">{isFound ? "When did you find it?" : "When did you lose it?"}</Label>

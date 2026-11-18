@@ -35,11 +35,28 @@ function AuthPage() {
   const [otpOpen, setOtpOpen] = useState(false);
   const [otp, setOtp] = useState("");
   const [adminMfaOpen, setAdminMfaOpen] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const queryParams = new URLSearchParams(window.location.search);
+    const isRecovery = hashParams.get("type") === "recovery" || queryParams.get("type") === "recovery";
+
+    if (isRecovery) {
+      setResetOpen(true);
+      return;
+    }
+
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) navigate({ to: "/dashboard", replace: true });
     });
+
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") setResetOpen(true);
+    });
+    return () => data.subscription.unsubscribe();
   }, [navigate]);
 
   async function submit(e: React.FormEvent) {
@@ -120,6 +137,50 @@ function AuthPage() {
     else toast.success("New code sent");
   }
 
+  async function sendPasswordReset(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isCampusEmail(email)) {
+      toast.error(`Please use your @${CAMPUS_EMAIL_DOMAIN} email`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+      if (error) throw error;
+      toast.success("Password reset email sent. Check your inbox.");
+      setForgotOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not send reset email");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveNewPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      await supabase.auth.signOut();
+      toast.success("Password updated. Please sign in.");
+      setResetOpen(false);
+      setNewPassword("");
+      window.history.replaceState({}, "", "/auth");
+      setMode("signin");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update password");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function verifyAdminMfa(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -179,7 +240,14 @@ function AuthPage() {
               <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="border-2" placeholder={CAMPUS_EMAIL_DOMAIN ? `you@${CAMPUS_EMAIL_DOMAIN}` : "you@university.edu"} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {mode === "signin" && (
+                  <button type="button" onClick={() => setForgotOpen(true)} className="text-sm font-semibold text-primary underline underline-offset-4">
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <Input id="password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className="border-2" />
             </div>
             <Button type="submit" variant="hero" size="xl" className="w-full" disabled={busy}>
@@ -189,6 +257,42 @@ function AuthPage() {
           </form>
         </div>
       </main>
+
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="border-2 border-foreground">
+          <DialogHeader>
+            <DialogTitle>Reset your password</DialogTitle>
+            <DialogDescription>Enter your IBA campus email and we will send you a password reset link.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={sendPasswordReset} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="forgot-email">Campus email</Label>
+              <Input id="forgot-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={CAMPUS_EMAIL_DOMAIN ? `you@${CAMPUS_EMAIL_DOMAIN}` : "you@university.edu"} className="border-2" />
+            </div>
+            <Button type="submit" variant="hero" size="lg" className="w-full" disabled={busy || !email.trim()}>
+              {busy && <Loader2 className="animate-spin" />} Send reset link
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetOpen} onOpenChange={() => {}}>
+        <DialogContent className="border-2 border-foreground" onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Create a new password</DialogTitle>
+            <DialogDescription>Enter a new password for your campus account.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveNewPassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-password">New password</Label>
+              <Input id="new-password" type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="border-2" />
+            </div>
+            <Button type="submit" variant="hero" size="lg" className="w-full" disabled={busy || newPassword.length < 8}>
+              {busy && <Loader2 className="animate-spin" />} Update password
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={otpOpen} onOpenChange={setOtpOpen}>
         <DialogContent className="border-2 border-foreground">
