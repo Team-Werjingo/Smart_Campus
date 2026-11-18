@@ -1,16 +1,26 @@
 import { Link } from "@tanstack/react-router";
 
-export function LogoMark({ className = "h-10 w-12" }: { className?: string }) {
+export function LogoMark({ className = "h-14 w-14" }: { className?: string }) {
   return (
-    <span className={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border-2 border-primary bg-white ${className}`}>
-      <img src="/iba-logo.png" alt="IBA" className="h-full w-full object-contain" />
+    <span className={`flex shrink-0 items-center justify-center ${className}`}>
+      <img src="/iba-mark.png" alt="IBA" className="h-full w-full object-contain drop-shadow-sm" />
     </span>
   );
 }
 
-export function Logo({ tagline = false, className = "" }: { tagline?: boolean; className?: string }) {
+export function Logo({
+  tagline = false,
+  className = "",
+}: {
+  tagline?: boolean;
+  className?: string;
+}) {
   return (
-    <Link to="/" aria-label="CampusFound home" className={`inline-flex items-center gap-3 ${className}`}>
+    <Link
+      to="/"
+      aria-label="CampusFound home"
+      className={`inline-flex items-center gap-3 ${className}`}
+    >
       <LogoMark />
       <span className="flex flex-col">
         <span className="font-display text-[1.35rem] font-bold leading-none tracking-tight text-primary">
