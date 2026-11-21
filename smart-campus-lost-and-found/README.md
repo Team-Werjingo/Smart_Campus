@@ -60,8 +60,8 @@ default. To configure one superadmin:
    do not need this extra prompt.
 
 The dashboard has sidebar sections for the overview, disputes, users, reports,
-matching performance, office-held items, audit log, and settings. Disputes and
-audit log are currently empty placeholders. The overview loads counts and
+matching performance, office-held items, and settings. Disputes are currently
+an empty placeholder. The overview loads counts and
 report charts from Supabase and supports 7-day, 30-day, 90-day, and all-time
 ranges. The reports section shows lost and found items side by side; matching
 performance shows paginated `score_comparison` rows with found and optional

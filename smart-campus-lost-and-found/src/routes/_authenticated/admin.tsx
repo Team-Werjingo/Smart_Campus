@@ -57,7 +57,7 @@ const REPORT_TYPE_CHART: ChartConfig = { count: { label: "Reports", color: "var(
 const LOCATION_CHART: ChartConfig = { count: { label: "Reports", color: "var(--chart-2)" } };
 
 type DashboardRange = "7d" | "30d" | "90d" | "all";
-type AdminSection = "dashboard" | "disputes" | "users" | "reports" | "matching" | "office" | "audit" | "settings";
+type AdminSection = "dashboard" | "disputes" | "users" | "reports" | "matching" | "office" | "settings";
 type UserRole = "user" | "admin" | "superadmin";
 
 const sections: { id: AdminSection; label: string; icon: typeof LayoutDashboard }[] = [
@@ -67,7 +67,6 @@ const sections: { id: AdminSection; label: string; icon: typeof LayoutDashboard 
   { id: "reports", label: "Reports", icon: ClipboardList },
   { id: "matching", label: "Matching Performance", icon: Activity },
   { id: "office", label: "Office-Held Items", icon: Building2 },
-  { id: "audit", label: "Audit Log", icon: ClipboardList },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -575,8 +574,6 @@ function AdminDashboard() {
             />
           )}
 
-          {section === "audit" && <EmptySection title="Audit log is empty" message="Administrative activity will appear here when audit logging is added." />}
-
           {section === "settings" && (
             <SettingsSection
               isSuperadmin={isSuperadmin}
@@ -636,7 +633,6 @@ function sectionDescription(section: AdminSection) {
     case "reports": return "Browse lost and found submissions.";
     case "matching": return "Review every generated lost-and-found score comparison.";
     case "office": return "Items currently kept by the Lost & Found office.";
-    case "audit": return "Administrative activity history.";
     case "settings": return "Configure matching behavior.";
   }
 }
